@@ -6,6 +6,7 @@ public abstract class User
     public string Name { get; init; }
     public string Surname { get; init; }
     public string Email { get; init; }
+    
     public string FullName => $"{Name} {Surname}";
 
     public abstract string Role { get; }

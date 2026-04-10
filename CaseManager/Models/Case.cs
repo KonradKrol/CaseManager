@@ -1,5 +1,6 @@
 namespace CaseManager.Models;
 
+// TODO: Add a ICaseFactory
 public class Case
 {
     public Guid Id { get; init; }

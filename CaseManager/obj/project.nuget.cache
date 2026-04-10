@@ -1,11 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "tSQbZ8DHQc8=",
+  "dgSpecHash": "0MSO8Y+0a/M=",
   "success": true,
   "projectFilePath": "/home/konrad/programming-projects/learning/aspnet/CaseManager/CaseManager/CaseManager.csproj",
   "expectedPackageFiles": [
     "/home/konrad/.nuget/packages/automapper/16.1.1/automapper.16.1.1.nupkg.sha512",
     "/home/konrad/.nuget/packages/fluentvalidation/12.1.1/fluentvalidation.12.1.1.nupkg.sha512",
+    "/home/konrad/.nuget/packages/fluentvalidation.dependencyinjectionextensions/12.1.1/fluentvalidation.dependencyinjectionextensions.12.1.1.nupkg.sha512",
     "/home/konrad/.nuget/packages/microsoft.aspnetcore.openapi/10.0.5/microsoft.aspnetcore.openapi.10.0.5.nupkg.sha512",
     "/home/konrad/.nuget/packages/microsoft.identitymodel.abstractions/8.14.0/microsoft.identitymodel.abstractions.8.14.0.nupkg.sha512",
     "/home/konrad/.nuget/packages/microsoft.identitymodel.jsonwebtokens/8.14.0/microsoft.identitymodel.jsonwebtokens.8.14.0.nupkg.sha512",
