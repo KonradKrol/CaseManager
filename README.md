@@ -6,4 +6,6 @@ I created this app to learn:
 - How to write useful tests (unit and integration ones)
 - How to use Docker
 
-I focus less on the architecture, but keep the layers divided (Web -> Domain <- EF Core)
+I focus less on the architecture, but keep the layers divided (Web -> Domain <- EF Core).
+
+There are many apps like my CaseManager, but the goal is learning valuable skills :)
