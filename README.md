@@ -9,3 +9,5 @@ I created this app to learn:
 I focus less on the architecture, but keep the layers divided (Web -> Domain <- EF Core).
 
 There are many apps like my CaseManager, but the goal is learning valuable skills :)
+
+🛠️ Still being developed.
