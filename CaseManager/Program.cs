@@ -1,12 +1,15 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using AutoMapper;
 using CaseManager;
+using CaseManager.BackgroundJobs;
 using CaseManager.Dto;
 using CaseManager.Factories;
 using CaseManager.Middleware;
 using CaseManager.Models;
+using CaseManager.Repository;
+using CaseManager.Repository.InMemory;
 using FluentValidation;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Scalar.AspNetCore;
 
@@ -19,11 +22,18 @@ builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddSingleton<IUserFactory, RoleBasedUserFactory>();
+builder.Services.AddSingleton<IUserRepository, InMemoryUsers>();
+builder.Services.AddSingleton<ICaseRepository, InMemoryCases>();
+builder.Services.AddSingleton<ICommentRepository, InMemoryComments>();
+builder.Services.AddHostedService<AddMockCommentsJob>();
+
 builder.Services
     .AddProblemDetails(); // it adds `traceId` for distributed tracking (OpenTelemtry, cloud) and can be passed through many services.
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 var app = builder.Build();
+
+// TODO: Niespójność: niektóre responses mają traceId, niektóre nie.
 
 app.MapOpenApi();
 
@@ -31,22 +41,28 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
-app.MapPost("/cases",
-    (CreateCaseDto createCaseDto, IMapper mapper, IValidator<CreateCaseDto> inputValidator,
-        IValidator<CreateCaseReturnDto> outputValidator) =>
+// TODO: Endpointy typu POST powinny zwrócić 409 gdy chcemy zrobić to samo drugi raz (zachowujemy idempotencję)
+// Post is NOT idempotent
+app.MapPost("/cases", async (CreateCaseDto createCaseDto, IMapper mapper, IValidator<CreateCaseDto> inputValidator,
+    IValidator<CreateCaseReturnDto> outputValidator, ICaseRepository caseRepository) =>
+{
+    inputValidator.ValidateAndThrow(createCaseDto);
+
+    var caseId = Guid.NewGuid();
+
+    var newCase = mapper.Map<Case>(createCaseDto, opt =>
     {
-        inputValidator.ValidateAndThrow(createCaseDto);
-
-        var newCase = mapper.Map<Case>(createCaseDto, opt =>
-        {
-            opt.Items["Id"] = Guid.NewGuid();
-            opt.Items["CreatedAt"] = DateTime.UtcNow;
-        });
-
-        var createCaseReturnDto = mapper.Map<CreateCaseReturnDto>(newCase);
-        outputValidator.ValidateAndThrow(createCaseReturnDto);
-        return Results.Ok(createCaseReturnDto);
+        opt.Items["Id"] = caseId;
+        opt.Items["CreatedAt"] = DateTime.UtcNow;
     });
+
+    var createCaseReturnDto = mapper.Map<CreateCaseReturnDto>(newCase);
+    outputValidator.ValidateAndThrow(createCaseReturnDto);
+
+    await caseRepository.AddCase(newCase);
+
+    return Results.Created($"/cases/{caseId}", createCaseReturnDto);
+});
 
 app.MapGet("/cases/{id:guid}",
     (Guid id, IMapper mapper,
@@ -68,11 +84,32 @@ app.MapGet("/cases/{id:guid}",
     });
 
 // TODO: Dodaj filtrowanie (także po zakresie dat)
-app.MapGet("cases",
-    ([FromQuery] string? filterByStatus, [FromQuery] string? filterByKeyword, IMapper mapper) =>
+app.MapGet("cases", async ([FromQuery] int? pageIndex, IMapper mapper, ILogger<Program> logger,
+    ICaseRepository caseRepository, IValidator<CaseDetailsDto> outputValidator) =>
+{
+    var actualPageIndex = pageIndex ?? 0;
+    const int pageLength = 2;
+    var startingIndex = actualPageIndex * pageLength;
+    var cases = (await caseRepository.GetFirstNCasesByCreatedAt(startingIndex, pageLength)).ToImmutableList();
+    if (cases.Count == 0)
     {
         return Results.NoContent();
-    });
+    }
+
+    var caseDetailsDtos = cases.Select(mapper.Map<CaseDetailsDto>).ToImmutableList();
+
+    logger.LogDebug($"Case details DTOs we wanna return: {string.Join(", ", caseDetailsDtos)}");
+
+    outputValidator.ValidateOutputDtosAndThrowFirstError(caseDetailsDtos);
+
+    var response = new Dictionary<string, object>()
+    {
+        ["pageIndex"] = actualPageIndex,
+        ["cases"] = caseDetailsDtos,
+    };
+
+    return Results.Ok(response);
+});
 
 app.MapPatch("cases", (IMapper mapper) => { return Results.NoContent(); });
 

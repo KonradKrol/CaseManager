@@ -5,7 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CaseManager.Middleware;
 
-// Add `Type` for ProblemDetails
+// TODO: Don't throw validation exceptions — just return 400 in controllers.
+// TODO: Add `Type` for ProblemDetails
 public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception,
@@ -30,7 +31,7 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
             BadHttpRequestException badHttpRequestException =>
                 new ProblemDetails
                 {
-                    Title  = "Bad HTTP Request",
+                    Title = "Bad HTTP Request",
                     Status = badHttpRequestException.StatusCode,
                     Detail = badHttpRequestException.Message,
                     Instance = httpContext.Request.Path
@@ -111,15 +112,32 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
                         ["Message"] = invalidCaseStatusException.MessageForClient,
                     }
                 },
+            CaseNotExistsException caseNotExistsException =>
+                new ProblemDetails
+                {
+                    Title = "Case doesn't exist",
+                    Status = StatusCodes.Status404NotFound,
+                    Detail = $"Case with ID: {caseNotExistsException.CaseId} has not been found.",
+                    Instance = httpContext.Request.Path,
+                },
+            InternalOutputValidationError =>
+                new ProblemDetails
+                {
+                    Title = "An error occured",
+                    Status = StatusCodes.Status500InternalServerError,
+                    Detail = $"Please report the error to our team.",
+                    Instance = httpContext.Request.Path,
+                },
             _ =>
                 new ProblemDetails
                 {
                     Title = "An error occured",
                     Status = StatusCodes.Status500InternalServerError,
                     Detail = "Please report the error to our team.",
-                    Instance = httpContext.Request.Path
+                    Instance = httpContext.Request.Path,
                 }
         };
+        problemDetails.Type = $"https://httpstatuses.com/{problemDetails.Status}";
 
         httpContext.Response.StatusCode = problemDetails.Status ?? StatusCodes.Status500InternalServerError;
         httpContext.Response.ContentType = "application/problem+json";

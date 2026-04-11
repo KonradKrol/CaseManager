@@ -1,5 +1,10 @@
+using System.Collections.Immutable;
+using System.ComponentModel.DataAnnotations;
 using AutoMapper;
 using CaseManager.Dto;
+using CaseManager.Exceptions;
+using CaseManager.Models;
+using CaseManager.Repository;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,29 +12,73 @@ namespace CaseManager.Controllers;
 
 [ApiController]
 [Route("/comments")]
-public class CommentsController(IMapper mapper, IValidator<AddCommentDto> addCommentDtoValidator) : ControllerBase
+public class CommentsController(
+    IMapper mapper,
+    IValidator<AddCommentDto> addCommentDtoValidator,
+    ICommentRepository commentRepository,
+    ICaseRepository caseRepository) : ControllerBase
 {
     [HttpGet]
     [Route(("/comments/{id:guid}"))]
-    public IActionResult GetComment([FromRoute] Guid id)
+    public async Task<IActionResult> GetComment([FromRoute] Guid id, CommentDetailsDtoValidator outputValidator)
     {
-        var commentDetailsDto = new Dictionary<string, string>() { };
+        var comment = await commentRepository.GetCommentById(id);
+
+        if (comment is null)
+        {
+            return NotFound();
+        }
+
+        var commentDetailsDto = mapper.Map<CommentDetailsDto>(comment);
+
+        outputValidator.ValidateOutputDtoAndThrow(commentDetailsDto);
 
         return Ok(commentDetailsDto);
     }
 
-    [HttpPost]
-    public IActionResult AddComment([FromBody] AddCommentDto addCommentDto)
+    [HttpGet]
+    [Route("/comments")]
+    public async Task<IActionResult> GetComments([FromQuery] [Required] Guid caseId,
+        CommentDetailsDtoValidator outputValidator)
     {
-        addCommentDtoValidator.ValidateAndThrow(addCommentDto);
+        var caseExists = await caseRepository.CaseExists(caseId);
+        if (!caseExists) throw new CaseNotExistsException(caseId);
+
+        var comments = (await commentRepository.GetAllCommentsByCaseId(caseId)).ToImmutableList();
+
+        if (comments.Count == 0) return NoContent();
+
+        var commentDetailsDtos = comments.Select(mapper.Map<CommentDetailsDto>).ToImmutableList();
+
+        outputValidator.ValidateOutputDtosAndThrowFirstError(commentDetailsDtos);
+
+        return Ok(commentDetailsDtos);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> AddComment([FromBody] AddCommentDto addCommentDto)
+    {
+        await addCommentDtoValidator.ValidateAndThrowAsync(addCommentDto);
+
+        var caseExists = await caseRepository.CaseExists(addCommentDto.CaseId);
+        if (!caseExists)
+        {
+            throw new CaseNotExistsException(addCommentDto.CaseId);
+        }
+
+        var commentId = Guid.NewGuid();
+
+        var comment = mapper.Map<Comment>(addCommentDto, opt => { opt.Items["Id"] = commentId; });
+        var createdAt = DateTime.Now;
+
+        await commentRepository.AddComment(comment);
 
         var commentAdded = new CommentAddedDto()
         {
-            CommentId = Guid.NewGuid(),
-            CreatedAt = DateTime.Now,
+            CommentId = commentId,
+            CreatedAt = createdAt,
         };
 
-        // TODO
         return Ok(commentAdded);
     }
 }

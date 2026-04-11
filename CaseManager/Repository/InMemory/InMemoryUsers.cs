@@ -1,0 +1,24 @@
+using CaseManager.Models;
+
+namespace CaseManager.Repository.InMemory;
+
+public class InMemoryUsers : IUserRepository
+{
+    private readonly List<User> _users = [];
+
+    public Task<IEnumerable<User>> GetAllUsers()
+    {
+        return Task.FromResult<IEnumerable<User>>(_users);
+    }
+
+    public Task<User?> GetUserById(Guid id)
+    {
+        return Task.FromResult(_users.SingleOrDefault(user => user.Id == id));
+    }
+
+    public Task AddUser(User user)
+    {
+        _users.Add(user);
+        return Task.CompletedTask;
+    }
+}
