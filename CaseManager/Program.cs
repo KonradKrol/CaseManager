@@ -17,33 +17,19 @@ builder.Services.AddAutoMapper((_, _) => { }, typeof(Program));
 builder.Services.AddValidatorsFromAssemblyContaining(typeof(Program));
 builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-// builder.Services.AddValidatorsFromAssemblyContaining<CaseDetailsDtoValidator>();
-// builder.Services.AddValidatorsFromAssemblyContaining<CreateCaseDtoValidator>();
-// builder.Services.AddValidatorsFromAssemblyContaining<CreateCaseReturnDtoValidator>();
 
 builder.Services.AddSingleton<IUserFactory, RoleBasedUserFactory>();
+builder.Services
+    .AddProblemDetails(); // it adds `traceId` for distributed tracking (OpenTelemtry, cloud) and can be passed through many services.
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 var app = builder.Build();
 
 app.MapOpenApi();
 
-app.UseMiddleware<ErrorHandlingMiddleware>();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseExceptionHandler();
 app.UseHttpsRedirection();
-
-// Endpointy będą takie:
-// POST /cases
-// GET /cases/{id} + get comments
-// GET /cases
-// PATCH /cases
-// GET /cases/{id}/history
-
-// GET /comments/{id}
-// POST /comments (by case id)
-
-// POST /users
-// GET /users/{id}
-// GET /users
-// POST /auth/login
 
 app.MapPost("/cases",
     (CreateCaseDto createCaseDto, IMapper mapper, IValidator<CreateCaseDto> inputValidator,
@@ -82,13 +68,17 @@ app.MapGet("/cases/{id:guid}",
     });
 
 // TODO: Dodaj filtrowanie (także po zakresie dat)
-app.MapGet("cases", ([FromQuery] string filterByStatus, [FromQuery] string filterByKeyword, IMapper mapper) => { });
+app.MapGet("cases",
+    ([FromQuery] string? filterByStatus, [FromQuery] string? filterByKeyword, IMapper mapper) =>
+    {
+        return Results.NoContent();
+    });
 
-app.MapPatch("cases", (IMapper mapper) => { });
+app.MapPatch("cases", (IMapper mapper) => { return Results.NoContent(); });
 
-app.MapPatch("/cases/{id}/history", (IMapper mapper) => { });
+app.MapPatch("/cases/{id}/history", (IMapper mapper) => { return Results.NoContent(); });
 
-app.MapPost("/auth/login", (IMapper mapper) => { });
+app.MapPost("/auth/login", (IMapper mapper) => { return Results.Forbid(); });
 
 
 app.MapControllers();
