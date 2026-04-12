@@ -1,4 +1,4 @@
-using CaseManager.Models;
+using CaseManager.DomainModels;
 using CaseManager.Repository;
 
 namespace CaseManager.BackgroundJobs;
@@ -45,13 +45,8 @@ public class AddMockCommentsJob(
     {
         for (var i = 0; i < MockedCommentsCount; i++)
         {
-            var comment = new Comment
-            {
-                Id = Guid.NewGuid(),
-                CaseId = caseIds.GetRandomElement(),
-                UserId = authorIds.GetRandomElement(),
-                Message = _messages.GetRandomElement(),
-            };
+            var comment = new Comment(id: Guid.NewGuid(), caseId: caseIds.GetRandomElement(),
+                userId: authorIds.GetRandomElement(), message: _messages.GetRandomElement());
 
             await commentRepository.AddComment(comment);
         }

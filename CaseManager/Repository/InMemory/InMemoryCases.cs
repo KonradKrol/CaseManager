@@ -1,4 +1,4 @@
-using CaseManager.Models;
+using CaseManager.DomainModels;
 
 namespace CaseManager.Repository.InMemory;
 
@@ -6,59 +6,28 @@ public class InMemoryCases : ICaseRepository
 {
     private readonly List<Case> _cases =
     [
-        new Case
-        {
-            Id = Guid.NewGuid(),
-            Title = "Kupcie drukarkę",
-            Description = "Drukarka jest nam potrzebna. Najlepiej HP!",
-            AssignedTo = [],
-            Status = CaseStatus.InProgress,
-            CreatedAt = DateTime.Now - TimeSpan.FromDays(4),
-            ClosedAt = null,
-        },
-        new Case
-        {
-            Id = Guid.NewGuid(),
-            Title = "Wywóz śmieci",
-            Description = "Wywóz śmieci wywóz smieci!",
-            AssignedTo =
+        new(id: Guid.NewGuid(), title: "Kupcie drukarkę",
+            description: "Drukarka jest nam potrzebna. Najlepiej HP!", assignedTo: [], status: CaseStatus.InProgress,
+            createdAt: DateTime.Now - TimeSpan.FromDays(4), closedAt: null),
+        new(id: Guid.NewGuid(), title: "Wywóz śmieci", description: "Wywóz śmieci wywóz smieci!", assignedTo:
             [
                 Guid.NewGuid(),
                 Guid.NewGuid(),
-            ],
-            Status = CaseStatus.Closed,
-            CreatedAt = DateTime.Now - TimeSpan.FromDays(16),
-            ClosedAt = DateTime.Now - TimeSpan.FromHours(12),
-        },
-        new Case
-        {
-            Id = Guid.NewGuid(),
-            Title = "Problem z pracownikiem...",
-            Description = "Pan Mariusz Kowalski dopuścił się karygodnego czynu, a mianowicie [...]",
-            AssignedTo =
+            ], status: CaseStatus.Closed, createdAt: DateTime.Now - TimeSpan.FromDays(16),
+            closedAt: DateTime.Now - TimeSpan.FromHours(12)),
+        new(id: Guid.NewGuid(), title: "Problem z pracownikiem...",
+            description: "Pan Mariusz Kowalski dopuścił się karygodnego czynu, a mianowicie [...]", assignedTo:
             [
                 Guid.NewGuid()
-            ],
-            Status = CaseStatus.Open,
-            CreatedAt = DateTime.Now - TimeSpan.FromDays(1),
-            ClosedAt = null,
-        },
-        new Case
-        {
-            Id = Guid.NewGuid(),
-            Title = "Cip, cip, kurka. Ku-ku-ryku!",
-            Description = "Kurka, kurka, kurka.",
-            AssignedTo = [],
-            Status = CaseStatus.InProgress,
-            CreatedAt = DateTime.Now - TimeSpan.FromDays(90),
-            // ClosedAt = DateTime.Now - TimeSpan.FromSeconds(13), // TODO: dla zmyłki. Docelowo, powinien być błąd walidacji w modelu domenowym!
-        },
-        new Case
-        {
-            Id = Guid.NewGuid(),
-            Title = "Czy w firmie można podkradać kawę?",
-            Description = "Zapytanie kieruję do Najwyższego Kierownictwa.",
-            AssignedTo =
+            ], status: CaseStatus.Open, createdAt: DateTime.Now - TimeSpan.FromDays(1), closedAt: null),
+        new(id: Guid.NewGuid(), title: "Cip, cip, kurka. Ku-ku-ryku!", description: "Kurka, kurka, kurka.",
+            assignedTo: [], status: CaseStatus.InProgress,
+            createdAt: DateTime.Now -
+                       TimeSpan.FromDays(
+                           90) // ClosedAt = DateTime.Now - TimeSpan.FromSeconds(13), // TODO: dla zmyłki. Docelowo, powinien być błąd walidacji w modelu domenowym!
+        ),
+        new(id: Guid.NewGuid(), title: "Czy w firmie można podkradać kawę?",
+            description: "Zapytanie kieruję do Najwyższego Kierownictwa.", assignedTo:
             [
                 Guid.NewGuid(),
                 Guid.NewGuid(),
@@ -70,11 +39,7 @@ public class InMemoryCases : ICaseRepository
                 Guid.NewGuid(),
                 Guid.NewGuid(),
                 Guid.NewGuid(),
-            ],
-            Status = CaseStatus.Open,
-            CreatedAt = DateTime.Now - TimeSpan.FromSeconds(54),
-            ClosedAt = null,
-        },
+            ], status: CaseStatus.Open, createdAt: DateTime.Now - TimeSpan.FromSeconds(54), closedAt: null),
     ];
 
     public Task<IEnumerable<Case>> GetFirstNCasesByCreatedAt(int startingAtIndex, int n)

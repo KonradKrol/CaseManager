@@ -1,4 +1,4 @@
-using CaseManager.Models;
+using CaseManager.DomainModels;
 
 namespace CaseManager.Repository;
 

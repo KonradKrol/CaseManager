@@ -1,18 +1,21 @@
 using AutoMapper;
 using CaseManager.Dto;
-using CaseManager.Models;
+using CaseManager.DomainModels;
+using UserRole = CaseManager.DomainModels.UserRole;
 
 namespace CaseManager.Mapping;
 
-// TODO: map it
-
-// TODO: Chyba osobny mapper dla różnych User types?
 public class UserProfile : Profile
 {
     public UserProfile()
     {
-        CreateMap<RegisterUserDto, User>().ForMember(x => x.Id,
-            opt => opt.MapFrom((_, _, _, context) => (Guid)context.Items["Id"]));
+        CreateMap<RegisterUserDto, User>()
+            .ConstructUsing((dto, context) =>
+            {
+                var id = (Guid)context.Items["Id"];
+
+                return new User(id, dto.Name, dto.Surname, dto.Email, Enum.Parse<UserRole>(dto.Role));
+            });
 
         CreateMap<User, UserRegisteredDto>();
 

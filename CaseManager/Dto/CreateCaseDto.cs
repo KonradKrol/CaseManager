@@ -1,4 +1,4 @@
-using CaseManager.Models;
+using CaseManager.DomainModels;
 using FluentValidation;
 
 namespace CaseManager.Dto;

@@ -1,6 +1,6 @@
 using AutoMapper;
 using CaseManager.Dto;
-using CaseManager.Models;
+using CaseManager.DomainModels;
 
 namespace CaseManager.Mapping;
 
@@ -8,8 +8,12 @@ public class CommentMapping : Profile
 {
     public CommentMapping()
     {
-        CreateMap<AddCommentDto, Comment>().ForMember(x => x.Id,
-            opt => opt.MapFrom((_, _, _, context) => (Guid)context.Items["Id"]));
+        CreateMap<AddCommentDto, Comment>()
+            .ConstructUsing((dto, context) =>
+            {
+                var id = (Guid)context.Items["Id"];
+                return new Comment(id, dto.CaseId, dto.UserId, dto.Message);
+            });
 
         CreateMap<Comment, CommentDetailsDto>();
     }

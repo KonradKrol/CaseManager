@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 using AutoMapper;
 using CaseManager.Dto;
 using CaseManager.Exceptions;
-using CaseManager.Models;
+using CaseManager.DomainModels;
 using CaseManager.Repository;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;

@@ -6,8 +6,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace CaseManager.Middleware;
 
 // TODO: Don't throw validation exceptions — just return 400 in controllers.
-// TODO: Add `Type` for ProblemDetails
-public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
+public class GlobalExceptionHandler(
+    ILogger<GlobalExceptionHandler> logger,
+    IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception,
         CancellationToken cancellationToken)
@@ -78,7 +79,7 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
                     Status = StatusCodes.Status504GatewayTimeout,
                     Instance = httpContext.Request.Path,
                 },
-            FormatException formatException =>
+            FormatException =>
                 new ProblemDetails
                 {
                     Title = "Format is invalid",
@@ -86,13 +87,21 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
                     Detail = "One or more fields have incorrect format",
                     Instance = httpContext.Request.Path,
                 },
+            DomainEntityCreationException domainEntityCreationException =>
+                new ProblemDetails()
+                {
+                    Title = "Entity creation has failed",
+                    Status = StatusCodes.Status422UnprocessableEntity,
+                    Detail = domainEntityCreationException.Message,
+                    Instance = httpContext.Request.Path
+                },
             TooManyAdminsException tooManyAdminsException =>
                 new ProblemDetails
                 {
                     Title = "Too many admins",
                     Status = StatusCodes.Status409Conflict,
                     Detail = $"Cannot create admin account because the limit has been reached ({
-                        tooManyAdminsException.AdminsLimit}",
+                        tooManyAdminsException.AdminsLimit})",
                     Instance = httpContext.Request.Path,
                     Extensions =
                     {
@@ -140,9 +149,16 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
         problemDetails.Type = $"https://httpstatuses.com/{problemDetails.Status}";
 
         httpContext.Response.StatusCode = problemDetails.Status ?? StatusCodes.Status500InternalServerError;
-        httpContext.Response.ContentType = "application/problem+json";
 
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken: cancellationToken);
+        // Add traceId, set appropriate ContentType, etc.
+        // In brief, make the response compliant with ProblemDetails specification.
+        // We can also attach traceId manually
+        await problemDetailsService.WriteAsync(new ProblemDetailsContext()
+        {
+            HttpContext = httpContext,
+            ProblemDetails = problemDetails,
+            Exception = exception
+        });
 
         return true;
     }

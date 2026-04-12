@@ -4,9 +4,8 @@ using AutoMapper;
 using CaseManager;
 using CaseManager.BackgroundJobs;
 using CaseManager.Dto;
-using CaseManager.Factories;
 using CaseManager.Middleware;
-using CaseManager.Models;
+using CaseManager.DomainModels;
 using CaseManager.Repository;
 using CaseManager.Repository.InMemory;
 using FluentValidation;
@@ -21,7 +20,6 @@ builder.Services.AddValidatorsFromAssemblyContaining(typeof(Program));
 builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-builder.Services.AddSingleton<IUserFactory, RoleBasedUserFactory>();
 builder.Services.AddSingleton<IUserRepository, InMemoryUsers>();
 builder.Services.AddSingleton<ICaseRepository, InMemoryCases>();
 builder.Services.AddSingleton<ICommentRepository, InMemoryComments>();
@@ -41,7 +39,8 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
-// TODO: Endpointy typu POST powinny zwrócić 409 gdy chcemy zrobić to samo drugi raz (zachowujemy idempotencję)
+// TODO: Endpointy PUT powinny zwrócić 409 gdy chcemy zrobić to samo drugi raz (zachowujemy idempotencję)
+
 // Post is NOT idempotent
 app.MapPost("/cases", async (CreateCaseDto createCaseDto, IMapper mapper, IValidator<CreateCaseDto> inputValidator,
     IValidator<CreateCaseReturnDto> outputValidator, ICaseRepository caseRepository) =>
@@ -68,15 +67,8 @@ app.MapGet("/cases/{id:guid}",
     (Guid id, IMapper mapper,
         IValidator<CaseDetailsDto> outputValidator) =>
     {
-        var loadedCase = new Case()
-        {
-            Id = id,
-            AssignedTo = [Guid.NewGuid(), Guid.NewGuid()],
-            CreatedAt = DateTime.Now,
-            Status = CaseStatus.Open,
-            Description = "Trtalal flallalal",
-            Title = "Hops hops raz dwa trzy"
-        }; // GET FROM DATABASE
+        var loadedCase = new Case(id: id, assignedTo: [Guid.NewGuid(), Guid.NewGuid()], createdAt: DateTime.Now,
+            status: CaseStatus.Open, description: "Trtalal flallalal", title: "Hops hops raz dwa trzy"); // GET FROM DATABASE
 
         var caseDetailsDto = mapper.Map<CaseDetailsDto>(loadedCase);
         outputValidator.ValidateAndThrow(caseDetailsDto);
