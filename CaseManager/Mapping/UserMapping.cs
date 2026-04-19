@@ -1,7 +1,6 @@
 using AutoMapper;
 using CaseManager.Dto;
 using CaseManager.DomainModels;
-using UserRole = CaseManager.DomainModels.UserRole;
 
 namespace CaseManager.Mapping;
 
@@ -13,8 +12,12 @@ public class UserProfile : Profile
             .ConstructUsing((dto, context) =>
             {
                 var id = (Guid)context.Items["Id"];
+                var passwordHash = (string)context.Items["PasswordHash"];
 
-                return new User(id, dto.Name, dto.Surname, dto.Email, Enum.Parse<UserRole>(dto.Role));
+                var onboardingStatus = dto.SkipOnboarding ? OnboardingStatus.Done : OnboardingStatus.NotStarted;
+
+                return new User(id, dto.Name, dto.Surname, dto.Email, Enum.Parse<UserRole>(dto.Role),
+                    Enum.Parse<JobTitle>(dto.JobTitle), onboardingStatus, passwordHash);
             });
 
         CreateMap<User, UserRegisteredDto>();

@@ -7,14 +7,14 @@ public class Case
     public Case(Guid id, string title, string description, List<Guid> assignedTo, CaseStatus status, DateTime createdAt,
         DateTime? closedAt = null)
     {
-        if (status is CaseStatus.Closed && closedAt is null)
+        if (!(status is CaseStatus.Closed ^ closedAt is null))
         {
-            throw new DomainEntityCreationException("ClosedAt must be provided, when Case is Closed");
+            throw new DomainEntityCreationException("ClosedAt must be provided when Case is Closed and only then.");
         }
-
-        if (closedAt > CreatedAt)
+        
+        if (closedAt <= CreatedAt)
         {
-            throw new DomainEntityCreationException("ClosedAt cannot be later than CreatedAt");
+            throw new DomainEntityCreationException("ClosedAt cannot be earlier than or equal CreatedAt");
         }
 
         Id = id;

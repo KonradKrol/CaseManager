@@ -5,7 +5,6 @@ using Microsoft.OpenApi;
 
 namespace CaseManager.Mapping;
 
-// TODO: revise after changing Case model
 public class CaseProfile : Profile
 {
     public CaseProfile()

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using CaseManager.DomainModels;
 using FluentValidation;
 
 namespace CaseManager.Dto;
@@ -25,13 +26,6 @@ public class LoggedInDto
     [Required] public string Token { get; init; }
     [Required] public DateTime ExpiresAt { get; init; }
     [Required] public LoggedUserDto User { get; init; }
-}
-
-// TODO: Can I reuse the enum from `Models/User.cs` file?
-public enum UserRole
-{
-    Admin,
-    Worker
 }
 
 public record LoggedUserDto([Required] Guid Id, [Required] [EmailAddress] string Email, [Required] UserRole Role);

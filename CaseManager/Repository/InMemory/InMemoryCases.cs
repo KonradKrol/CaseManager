@@ -24,7 +24,7 @@ public class InMemoryCases : ICaseRepository
             assignedTo: [], status: CaseStatus.InProgress,
             createdAt: DateTime.Now -
                        TimeSpan.FromDays(
-                           90) // ClosedAt = DateTime.Now - TimeSpan.FromSeconds(13), // TODO: dla zmyłki. Docelowo, powinien być błąd walidacji w modelu domenowym!
+                           90)
         ),
         new(id: Guid.NewGuid(), title: "Czy w firmie można podkradać kawę?",
             description: "Zapytanie kieruję do Najwyższego Kierownictwa.", assignedTo:
