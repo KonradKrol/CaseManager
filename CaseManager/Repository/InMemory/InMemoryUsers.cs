@@ -31,13 +31,16 @@ public class InMemoryUsers : IUserRepository
         return await GetUserByEmail(email) is not null;
     }
 
-    public Task<bool> EveryUserExists(IEnumerable<Guid> ids, out IEnumerable<Guid> notExistingIds)
+    public async Task<bool> EveryUserExists(IEnumerable<Guid> ids)
     {
-        notExistingIds = ids.Where(id => _users.All(user => user.Id != id)).ToList();
+        return (await GetNotExistingUserIds(ids)).Count() == 0;
+    }
 
-        var everyUserExists = notExistingIds.Count() == 0;
+    public Task<IEnumerable<Guid>> GetNotExistingUserIds(IEnumerable<Guid> ids)
+    {
+        var notExistingIds = ids.Where(id => _users.All(user => user.Id != id)).ToList();
 
-        return Task.FromResult(everyUserExists);
+        return Task.FromResult<IEnumerable<Guid>>(notExistingIds);
     }
 
     public Task AddUser(User user)

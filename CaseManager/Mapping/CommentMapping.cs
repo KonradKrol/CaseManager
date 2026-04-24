@@ -12,7 +12,8 @@ public class CommentMapping : Profile
             .ConstructUsing((dto, context) =>
             {
                 var id = (Guid)context.Items["Id"];
-                return new Comment(id, dto.CaseId, dto.UserId, dto.Message);
+                var caseId = (Guid)context.Items["CaseId"];
+                return new Comment(id, caseId, dto.UserId, dto.Message);
             });
 
         CreateMap<Comment, CommentDetailsDto>();

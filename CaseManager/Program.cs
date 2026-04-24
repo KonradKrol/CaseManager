@@ -5,10 +5,12 @@ using System.Text.Json.Serialization;
 using AutoMapper;
 using CaseManager.Auth;
 using CaseManager.BackgroundJobs;
+using CaseManager.Config;
 using CaseManager.DomainModels;
 using CaseManager.Dto;
 using CaseManager.Middleware;
 using CaseManager.Repository;
+using CaseManager.Repository.FileSystem;
 using CaseManager.Repository.InMemory;
 using CaseManager.Services;
 using FluentValidation;
@@ -33,6 +35,8 @@ else
 
 builder.Services.AddCaseManagerAuthorization(builder.Configuration);
 
+builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+
 builder.Services.AddOpenApi();
 builder.Services.AddAutoMapper((_, _) => { }, typeof(Program));
 builder.Services.AddValidatorsFromAssemblyContaining(typeof(Program));
@@ -43,7 +47,7 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IJwtAuthService, SemiProdJwtAuthService>(sp =>
     new SemiProdJwtAuthService(builder.Configuration["Jwt:Key"] ?? throw new MissingFieldException("Missing Jwt:Key"),
         sp.GetRequiredService<IClock>()));
-builder.Services.AddSingleton<IUserRepository, InMemoryUsers>();
+builder.Services.AddSingleton<IUserRepository, FileSystemUsers>();
 builder.Services.AddSingleton<ICaseRepository, InMemoryCases>();
 builder.Services.AddSingleton<ICommentRepository, InMemoryComments>();
 builder.Services.AddHostedService<AddMockCommentsJob>();
@@ -78,8 +82,8 @@ app.MapPost("/cases", async (CreateCaseDto createCaseDto, HttpContext context, I
     var assignedUserIds = createCaseDto.AssignedTo;
     if (assignedUserIds is not null)
     {
-        var everyAssignedUserExists = await userRepository.EveryUserExists(assignedUserIds, out var notExistingIds);
-        if (!everyAssignedUserExists)
+        var notExistingIds = await userRepository.GetNotExistingUserIds(assignedUserIds);
+        if (notExistingIds.Any())
         {
             return Results.BadRequest(new Dictionary<string, object> // TODO: Is 409 good?
             {
@@ -157,19 +161,44 @@ app.MapPatch("/cases/{id:guid}", (System.Guid id, IMapper mapper) => { return Re
 app.MapPatch("/cases/{id:guid}/history", (Guid id, IMapper mapper) => { return Results.NoContent(); })
     .RequireAuthorization(Policies.CaseAuthorOrActiveAdmin);
 
-app.MapPost("/cases/{caseId:guid}/comments", async (Guid caseId, ICaseRepository cases) =>
+app.MapPost("/cases/{caseId:guid}/comments", async (Guid caseId, ICaseRepository cases,
+    ICommentRepository commentRepository, AddCommentDto addCommentDto, IMapper mapper) =>
 {
-    var caseExists = await cases.CaseExists(caseId);
+    // var caseExists = await cases.CaseExists(caseId);
+    //
+    // if (!caseExists)
+    // {
+    //     return Results.NotFound();
+    // }
+    // TODO: Czy to i tak będzie wyłapane przez ICommentRepository?
 
-    if (!caseExists)
+    var commentId = Guid.NewGuid();
+    var comment = mapper.Map<Comment>(addCommentDto, options =>
     {
-        return Results.NotFound();
-    }
-    
-    return Results.Created();
+        options.Items["Id"] = commentId;
+        options.Items["CaseId"] = caseId;
+    });
+
+    await commentRepository.AddComment(comment);
+
+    return Results.Created($"/comments/{caseId}", new { CommentId = commentId });
 }).RequireAuthorization(Policies.AuthenticatedOnly);
 
-app.MapGet("cases/{caseId:guid}/comments", (Guid caseId) => { }).RequireAuthorization("Authenticated");
+app.MapGet("/cases/{caseId:guid}/comments", async (Guid caseId, ICommentRepository commentRepository, IMapper mapper) =>
+{
+    var comments = await commentRepository.GetAllCommentsOf(caseId);
+    var commentDtos = comments.Select(mapper.Map<CommentDetailsDto>);
+
+    return Results.Ok(new { Comments = commentDtos });
+}).RequireAuthorization(Policies.AuthenticatedOnly);
+
+app.MapGet("/comments/{id:guid}", async (Guid id, ICommentRepository commentRepository, IMapper mapper) =>
+{
+    var comment = await commentRepository.GetCommentById(id);
+    var commentDto = mapper.Map<CommentDetailsDto>(comment);
+
+    return commentDto;
+}).RequireAuthorization(Policies.AuthenticatedOnly);
 
 app.MapPost("/users",
     async ([FromBody] RegisterUserDto registerUserDto, IMapper mapper, IValidator<RegisterUserDto> validator,

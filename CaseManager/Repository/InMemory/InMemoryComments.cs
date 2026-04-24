@@ -7,11 +7,18 @@ public class InMemoryComments : ICommentRepository
     private readonly Dictionary<Guid, List<Comment>> _commentsByCase = new();
     private readonly Dictionary<Guid, Comment> _commentsById = new();
 
-    public Task<IEnumerable<Comment>> GetAllCommentsByCaseId(Guid caseId)
+    public Task<IEnumerable<Comment>> GetAllCommentsOf(Guid caseId)
     {
         return Task.FromResult<IEnumerable<Comment>>(_commentsByCase.TryGetValue(caseId, out var comments)
             ? comments
             : []);
+    }
+
+    public Task<Comment?> GetFirstCommentOf(Guid caseId)
+    {
+        return Task.FromResult(_commentsByCase.TryGetValue(caseId, out var comments)
+            ? comments.First()
+            : null);
     }
 
     public Task<Comment?> GetCommentById(Guid id)
