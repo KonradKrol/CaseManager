@@ -4,20 +4,27 @@ namespace CaseManager.DomainModels;
 
 public class Case
 {
-    public Case(Guid id, string title, string description, List<Guid> assignedTo, CaseStatus status, DateTime createdAt,
+    public Case(Guid id, Guid authorId, string title, string description, List<Guid> assignedTo, CaseStatus status,
+        DateTime createdAt,
         DateTime? closedAt = null)
     {
         if (!(status is CaseStatus.Closed ^ closedAt is null))
         {
             throw new DomainEntityCreationException("ClosedAt must be provided when Case is Closed and only then.");
         }
-        
+
         if (closedAt <= CreatedAt)
         {
-            throw new DomainEntityCreationException("ClosedAt cannot be earlier than or equal CreatedAt");
+            throw new DomainEntityCreationException("ClosedAt cannot be earlier than or equal CreatedAt.");
+        }
+
+        if (id.Equals(authorId))
+        {
+            throw new DomainEntityCreationException("Id and AuthorId must be different.");
         }
 
         Id = id;
+        AuthorId = authorId;
         Title = title;
         Description = description;
         AssignedTo = assignedTo;
@@ -27,6 +34,7 @@ public class Case
     }
 
     public Guid Id { get; }
+    public Guid AuthorId { get; }
     public List<Guid> AssignedTo { get; }
     public string Title { get; }
     public string Description { get; }

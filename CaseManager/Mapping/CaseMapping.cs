@@ -13,9 +13,11 @@ public class CaseProfile : Profile
             .ConstructUsing((dto, context) =>
             {
                 var id = (Guid)context.Items["Id"];
+                var authorId = (Guid)context.Items["AuthorId"];
                 var createdAt = (DateTime)context.Items["CreatedAt"];
 
-                return new Case(id, dto.Title, dto.Description, dto.AssignedTo ?? [], CaseStatus.Open, createdAt);
+                return new Case(id, authorId, dto.Title, dto.Description, dto.AssignedTo ?? [], CaseStatus.Open,
+                    createdAt);
             });
 
         CreateMap<Case, CreateCaseReturnDto>()

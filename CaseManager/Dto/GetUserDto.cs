@@ -9,6 +9,8 @@ public class UserDetailsDto
     public string Surname { get; init; }
     public string Role { get; init; }
     public string Email { get; init; }
+    public string JobTitle { get; init; }
+    public string OnboardingStatus { get; init; }
 }
 
 public class UserDetailsDtoValidator : AbstractValidator<UserDetailsDto>

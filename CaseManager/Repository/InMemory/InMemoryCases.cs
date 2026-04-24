@@ -6,27 +6,29 @@ public class InMemoryCases : ICaseRepository
 {
     private readonly List<Case> _cases =
     [
-        new(id: Guid.NewGuid(), title: "Kupcie drukarkę",
+        new(id: Guid.NewGuid(), authorId: Guid.NewGuid(), title: "Kupcie drukarkę",
             description: "Drukarka jest nam potrzebna. Najlepiej HP!", assignedTo: [], status: CaseStatus.InProgress,
             createdAt: DateTime.Now - TimeSpan.FromDays(4), closedAt: null),
-        new(id: Guid.NewGuid(), title: "Wywóz śmieci", description: "Wywóz śmieci wywóz smieci!", assignedTo:
+        new(id: Guid.NewGuid(), authorId: Guid.NewGuid(), title: "Wywóz śmieci",
+            description: "Wywóz śmieci wywóz smieci!", assignedTo:
             [
                 Guid.NewGuid(),
                 Guid.NewGuid(),
             ], status: CaseStatus.Closed, createdAt: DateTime.Now - TimeSpan.FromDays(16),
             closedAt: DateTime.Now - TimeSpan.FromHours(12)),
-        new(id: Guid.NewGuid(), title: "Problem z pracownikiem...",
+        new(id: Guid.NewGuid(), authorId: Guid.NewGuid(), title: "Problem z pracownikiem...",
             description: "Pan Mariusz Kowalski dopuścił się karygodnego czynu, a mianowicie [...]", assignedTo:
             [
                 Guid.NewGuid()
             ], status: CaseStatus.Open, createdAt: DateTime.Now - TimeSpan.FromDays(1), closedAt: null),
-        new(id: Guid.NewGuid(), title: "Cip, cip, kurka. Ku-ku-ryku!", description: "Kurka, kurka, kurka.",
+        new(id: Guid.NewGuid(), authorId: Guid.NewGuid(), title: "Cip, cip, kurka. Ku-ku-ryku!",
+            description: "Kurka, kurka, kurka.",
             assignedTo: [], status: CaseStatus.InProgress,
             createdAt: DateTime.Now -
                        TimeSpan.FromDays(
                            90)
         ),
-        new(id: Guid.NewGuid(), title: "Czy w firmie można podkradać kawę?",
+        new(id: Guid.NewGuid(), authorId: Guid.NewGuid(), title: "Czy w firmie można podkradać kawę?",
             description: "Zapytanie kieruję do Najwyższego Kierownictwa.", assignedTo:
             [
                 Guid.NewGuid(),

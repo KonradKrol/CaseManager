@@ -7,6 +7,7 @@ public record GetCaseDto([Required] Guid CaseId);
 
 public record CaseDetailsDto(
     Guid Id,
+    Guid AuthorId,
     List<Guid> AssignedTo,
     string Title,
     string Description,

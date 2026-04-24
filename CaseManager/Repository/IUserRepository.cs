@@ -8,5 +8,8 @@ public interface IUserRepository
     Task<IEnumerable<User>> GetAllUsers();
     Task<User?> GetUserById(Guid id);
     Task<User?> GetUserByEmail(string email);
+    Task<bool> UserExists(Guid id);
+    Task<bool> UserExists(string email);
+    Task<bool> EveryUserExists(IEnumerable<Guid> ids, out IEnumerable<Guid> notExistingIds);
     Task AddUser(User user);
 }

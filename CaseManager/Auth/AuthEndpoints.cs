@@ -19,13 +19,13 @@ public static class AuthEndpoints
             IJwtAuthService authService, IMapper mapper) =>
         {
             var user = await userRepository.GetUserByEmail(loginDto.Email);
-            
+
             const string dummyHash = "$2a$11$C6UzMDM.H6dfI/f/IKcEeO9mG0w8pQ6F0F5w5Y9OQp6Y5r5a5f5a6";
 
             var passwordToVerify = user?.PasswordHash ?? dummyHash;
 
             var passwordMatches = BCrypt.Net.BCrypt.Verify(loginDto.Password, passwordToVerify);
-            
+
             if (user is null || !passwordMatches)
             {
                 return Results.Unauthorized();
@@ -72,13 +72,12 @@ public static class AuthEndpoints
 
             return Results.Ok();
         }).AllowAnonymous();
-
-
     }
 
     public static void MapDebugClaimsEndpoint(this WebApplication app)
     {
         app.MapGet("/debug_claims",
-            (HttpContext ctx) => { return ctx.User.Claims.Select(c => new { c.Type, c.Value }); }).RequireAuthorization(auth => auth.RequireAuthenticatedUser());
+                (HttpContext ctx) => { return ctx.User.Claims.Select(c => new { c.Type, c.Value }); })
+            .RequireAuthorization(Policies.ItExpertOrAdmin);
     }
 }

@@ -1,29 +1,37 @@
 using System.Collections.Immutable;
-using System.Text;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using AutoMapper;
 using CaseManager.Auth;
 using CaseManager.BackgroundJobs;
+using CaseManager.DomainModels;
 using CaseManager.Dto;
 using CaseManager.Middleware;
-using CaseManager.DomainModels;
 using CaseManager.Repository;
 using CaseManager.Repository.InMemory;
 using CaseManager.Services;
 using FluentValidation;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
-using UserRole = CaseManager.DomainModels.UserRole;
+using SystemClock = CaseManager.Services.SystemClock;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var jwtSecurityKey =  builder.Configuration["Jwt:Key"] ?? throw new MissingFieldException("You must provide the Jwt:Key");
-builder.Services.AddJwtBearerAuth(builder.Configuration, jwtSecurityKey);
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services
+        .AddAuthentication("Dev")
+        .AddScheme<AuthenticationSchemeOptions, LocalDevAuthenticationHandler>("Dev", _ => { });
+}
+else
+{
+    builder.Services.AddJwtBearerAuth(builder.Configuration);
+    // builder.Services.AddCookiesAuth(builder.Configuration);
+}
 
-// builder.Services.AddCookiesAuth(builder.Configuration);
+builder.Services.AddCaseManagerAuthorization(builder.Configuration);
 
 builder.Services.AddOpenApi();
 builder.Services.AddAutoMapper((_, _) => { }, typeof(Program));
@@ -52,24 +60,48 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseHsts();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
+Console.WriteLine(app.Environment.EnvironmentName);
+
 app.MapPost("/cases", async (CreateCaseDto createCaseDto, HttpContext context, IMapper mapper,
     IValidator<CreateCaseDto> inputValidator,
-    ICaseRepository caseRepository) =>
+    ICaseRepository caseRepository, IUserRepository userRepository) =>
 
 {
+    var userSub = context.User.FindFirst("sub")?.Value;
+    _ = Guid.TryParse(userSub, out var userId);
+
+    var assignedUserIds = createCaseDto.AssignedTo;
+    if (assignedUserIds is not null)
+    {
+        var everyAssignedUserExists = await userRepository.EveryUserExists(assignedUserIds, out var notExistingIds);
+        if (!everyAssignedUserExists)
+        {
+            return Results.BadRequest(new Dictionary<string, object> // TODO: Is 409 good?
+            {
+                ["NotExistingUsers"] = notExistingIds,
+            });
+        }
+    }
+
+
+    var userExists = await userRepository.UserExists(userId);
+    if (!userExists)
+    {
+        return Results.Unauthorized();
+    }
+
     inputValidator.ValidateAndThrow(createCaseDto);
 
-    var userId = context.User.FindFirst("sub")?.Value;
-
     var caseId = Guid.NewGuid();
-
     var newCase = mapper.Map<Case>(createCaseDto, opt =>
     {
         opt.Items["Id"] = caseId;
+        opt.Items["AuthorId"] = userId;
         opt.Items["CreatedAt"] = DateTime.UtcNow;
     });
 
@@ -78,19 +110,20 @@ app.MapPost("/cases", async (CreateCaseDto createCaseDto, HttpContext context, I
     await caseRepository.AddCase(newCase);
 
     return Results.Created($"/cases/{caseId}", createCaseReturnDto);
-}).RequireAuthorization(policyBuilder => policyBuilder.RequireRole(Claims.Roles.Admin));
+}).RequireAuthorization(Policies.OnboardedOnly);
 
 app.MapGet("/cases/{id:guid}",
     (Guid id, IMapper mapper) =>
     {
-        var loadedCase = new Case(id: id, assignedTo: [Guid.NewGuid(), Guid.NewGuid()], createdAt: DateTime.Now,
+        var loadedCase = new Case(id: id, authorId: Guid.NewGuid(), assignedTo: [Guid.NewGuid(), Guid.NewGuid()],
+            createdAt: DateTime.Now,
             status: CaseStatus.Open, description: "Trtalal flallalal",
             title: "Hops hops raz dwa trzy"); // GET FROM DATABASE
 
         var caseDetailsDto = mapper.Map<CaseDetailsDto>(loadedCase);
 
         return Results.Ok(caseDetailsDto);
-    }).RequireAuthorization(policyBuilder => policyBuilder.RequireAuthenticatedUser());
+    }).RequireAuthorization(Policies.AuthenticatedOnly);
 
 // TODO: Dodaj filtrowanie (także po zakresie dat)
 app.MapGet("/cases", async ([FromQuery] int? pageIndex, IMapper mapper, ILogger<Program> logger,
@@ -109,18 +142,81 @@ app.MapGet("/cases", async ([FromQuery] int? pageIndex, IMapper mapper, ILogger<
 
     logger.LogDebug($"Case details DTOs we wanna return: {string.Join(", ", caseDetailsDtos)}");
 
-    var response = new Dictionary<string, object>()
+    var response = new Dictionary<string, object>
     {
         ["pageIndex"] = actualPageIndex,
         ["cases"] = caseDetailsDtos,
     };
 
     return Results.Ok(response);
-}).RequireAuthorization(policyBuilder => policyBuilder.RequireAuthenticatedUser());
+}).RequireAuthorization(Policies.AuthenticatedOnly);
 
-app.MapPatch("/cases", (IMapper mapper) => { return Results.NoContent(); });
+app.MapPatch("/cases/{id:guid}", (System.Guid id, IMapper mapper) => { return Results.NoContent(); })
+    .RequireAuthorization(Policies.CaseAuthorOrActiveAdmin);
 
-app.MapPatch("/cases/{id}/history", (IMapper mapper) => { return Results.NoContent(); });
+app.MapPatch("/cases/{id:guid}/history", (Guid id, IMapper mapper) => { return Results.NoContent(); })
+    .RequireAuthorization(Policies.CaseAuthorOrActiveAdmin);
+
+app.MapPost("/cases/{caseId:guid}/comments", async (Guid caseId, ICaseRepository cases) =>
+{
+    var caseExists = await cases.CaseExists(caseId);
+
+    if (!caseExists)
+    {
+        return Results.NotFound();
+    }
+    
+    return Results.Created();
+}).RequireAuthorization(Policies.AuthenticatedOnly);
+
+app.MapGet("cases/{caseId:guid}/comments", (Guid caseId) => { }).RequireAuthorization("Authenticated");
+
+app.MapPost("/users",
+    async ([FromBody] RegisterUserDto registerUserDto, IMapper mapper, IValidator<RegisterUserDto> validator,
+        IUserRepository userRepository, ILogger<Program> logger) =>
+    {
+        validator.ValidateAndThrow(registerUserDto);
+
+        if (registerUserDto.Password != registerUserDto.ConfirmPassword)
+        {
+            logger.LogInformation("Passwords does not match — cannot sign up");
+            return Results.BadRequest("Passwords does not match.");
+        }
+
+        if (registerUserDto is { Role: "Admin", AdminConfirmation: not "confirm" })
+        {
+            logger.LogWarning("Wrong AdminConfirmation ({AdminConfirmation})", registerUserDto.AdminConfirmation);
+            return Results.Unauthorized();
+        }
+
+        var userId = Guid.NewGuid();
+
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(registerUserDto.Password);
+
+        var user = mapper.Map<User>(registerUserDto, options =>
+        {
+            options.Items["Id"] = userId;
+            options.Items["PasswordHash"] = passwordHash;
+        });
+
+        await userRepository.AddUser(user);
+
+        var responseDictionary = new Dictionary<string, object>
+        {
+            ["Id"] = userId,
+        };
+
+        return Results.Created("", responseDictionary);
+    }).RequireAuthorization(Policies.AdminOnly);
+
+app.MapGet("/users", async (IMapper mapper, IUserRepository userRepository, ILogger<Program> logger) =>
+{
+    var users = (await userRepository.GetAllUsers()).ToList();
+
+    var userDetailsDtos = users.Select(mapper.Map<UserDetailsDto>);
+
+    return Results.Ok(userDetailsDtos);
+}).RequireAuthorization(Policies.AdminOnly);
 
 app.MapJwtBearerLoginEndpoint();
 app.MapDebugClaimsEndpoint();

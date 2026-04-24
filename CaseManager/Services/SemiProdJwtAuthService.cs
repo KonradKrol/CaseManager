@@ -17,9 +17,9 @@ public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuth
         var (userId, email, role, jobTitle, onboardingStatus) = claims;
         var userIdString = userId.ToString();
 
-        var roleString = role.ToString().ToLower();
-        var jobTitleString = jobTitle.ToString().ToLower();
-        var onboardingStatusString = onboardingStatus.ToString().ToLower();
+        var roleString = role.ToString();
+        var jobTitleString = jobTitle.ToString();
+        var onboardingStatusString = onboardingStatus.ToString();
 
         var key = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(securityKey));
