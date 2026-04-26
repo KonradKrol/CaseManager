@@ -1,5 +1,6 @@
 using CaseManager.DomainModels;
 using CaseManager.Repository;
+using CaseManager.Utils;
 
 namespace CaseManager.BackgroundJobs;
 
@@ -27,7 +28,7 @@ public class AddMockCommentsJob(
     {
         await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
 
-        var allUsers = await userRepository.GetAllUsers();
+        var allUsers = await userRepository.GetAllUsersAsync();
         var allCases = await caseRepository.GetFirstNCasesByCreatedAt(0, 200);
 
         var userIds = new List<Guid>()

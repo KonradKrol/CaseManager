@@ -1,14 +1,26 @@
 using System.Text;
 using CaseManager.Auth.Requirements;
 using CaseManager.DomainModels;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 
 namespace CaseManager.Auth;
 
 public static class AuthDependencyInjection
 {
+    public static IServiceCollection AddPasswordHasher(this IServiceCollection services)
+    {
+        services.Configure<PasswordHasherOptions>(options => { options.IterationCount = 200_000; });
+
+        services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+
+        return services;
+    }
+
+
     public static IServiceCollection AddJwtBearerAuth(
         this IServiceCollection services, IConfiguration config)
     {
@@ -50,7 +62,8 @@ public static class AuthDependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddCookiesAuth(this IServiceCollection services, IConfiguration config)
+    public static IServiceCollection AddCookiesAuth(this IServiceCollection services, IConfiguration config,
+        IWebHostEnvironment environment)
     {
         services.AddAuthentication(options =>
             {
@@ -72,8 +85,33 @@ public static class AuthDependencyInjection
                     return Task.CompletedTask;
                 };
 
+                // TODO: That's not scalable
+                options.Events.OnValidatePrincipal = async context =>
+                {
+                    var sessionId = context.Principal?.FindFirst("session_id")?.Value;
+
+                    var sessionBlacklist = context.HttpContext.RequestServices.GetRequiredService<ISessionBlacklist>();
+
+                    if (sessionId is null)
+                    {
+                        context.RejectPrincipal();
+                        return;
+                    }
+
+                    var sessionIsRevoked = await sessionBlacklist.SessionIsRevoked(sessionId);
+
+                    if (sessionIsRevoked)
+                    {
+                        context.RejectPrincipal();
+                        await context.HttpContext.SignOutAsync();
+                    }
+                };
+
+                options.Cookie.Name = "__Host-auth"; // It's doing something useful, blocks some attaeck
                 options.Cookie.HttpOnly = true; // hides it from JS
-                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // enables HTTPS
+                options.Cookie.SameSite = SameSiteMode.Lax;
+                options.Cookie.SecurePolicy =
+                    CookieSecurePolicy.Always; // enforces HTTPS
                 options.LoginPath = "/auth/login";
                 options.ExpireTimeSpan = TimeSpan.FromMinutes(15);
                 options.SlidingExpiration = true;

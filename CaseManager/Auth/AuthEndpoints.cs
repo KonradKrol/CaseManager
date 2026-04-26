@@ -6,6 +6,7 @@ using CaseManager.Dto;
 using CaseManager.Repository;
 using CaseManager.Services;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using UserRole = CaseManager.DomainModels.UserRole;
 
@@ -13,22 +14,36 @@ namespace CaseManager.Auth;
 
 public static class AuthEndpoints
 {
+    // TODO: Nadgoń, bo cookies ma lepsze security
     public static void MapJwtBearerLoginEndpoint(this WebApplication app)
     {
         app.MapPost("/auth/login", async ([FromBody] LoginDto loginDto, IUserRepository userRepository,
-            IJwtAuthService authService, IMapper mapper) =>
+            IJwtAuthService authService, IPasswordHasher<User> hasher) =>
         {
-            var user = await userRepository.GetUserByEmail(loginDto.Email);
+            var user = await userRepository.GetUserByEmailAsync(loginDto.Email);
 
-            const string dummyHash = "$2a$11$C6UzMDM.H6dfI/f/IKcEeO9mG0w8pQ6F0F5w5Y9OQp6Y5r5a5f5a6";
+            const string dummyHash = "AQAAAAIAAw1AAAAAEDthRHNbQDbCZSbmNjkfdTa0EJD6HSqxf1zGIxIn7tC0weEBcWo2USOXP42N6se41w==";
 
             var passwordToVerify = user?.PasswordHash ?? dummyHash;
 
-            var passwordMatches = BCrypt.Net.BCrypt.Verify(loginDto.Password, passwordToVerify);
+            var result = hasher.VerifyHashedPassword(user!, passwordToVerify, loginDto.Password); // TODO: Don't use null-coallesce
 
-            if (user is null || !passwordMatches)
+            if (user is null)
             {
                 return Results.Unauthorized();
+            }
+
+            switch (result)
+            {
+                case PasswordVerificationResult.Failed:
+                    return Results.Unauthorized();
+                case PasswordVerificationResult.Success:
+                    break;
+                case PasswordVerificationResult.SuccessRehashNeeded:
+                {
+                    await RehashUserPassword(hasher, user, passwordToVerify, userRepository);
+                    break;
+                }
             }
 
             var claims = new JwtUserClaims(user.Id, loginDto.Email, user.Role, user.JobTitle, user.OnboardingStatus);
@@ -39,31 +54,48 @@ public static class AuthEndpoints
         }).AllowAnonymous();
     }
 
-    // TODO: Od zera, poprawnie, produkcyjnie
     public static void MapCookiesLoginEndpoint(this WebApplication app)
     {
         app.MapPost("/auth/login", async ([FromBody] LoginDto loginDto, IUserRepository userRepository, IClock clock,
-            HttpContext httpContext) =>
+            HttpContext httpContext, ISessionBlacklist _, IPasswordHasher<User> hasher) =>
         {
-            // var user = await userRepository.GetUserByEmail(loginDto.Email);
+            var user = await userRepository.GetUserByEmailAsync(loginDto.Email);
 
-            var user = new User(Guid.NewGuid(), "Dawid", "Kubacki", "ok@ok.ok", UserRole.Admin,
-                JobTitle.DepartmentDirector, OnboardingStatus.Done, "ok");
+            const string dummyHash = "AQAAAAIAAw1AAAAAEDthRHNbQDbCZSbmNjkfdTa0EJD6HSqxf1zGIxIn7tC0weEBcWo2USOXP42N6se41w==";
 
-            if (user == null || user.PasswordHash != loginDto.Password)
+            var passwordToVerify = user?.PasswordHash ?? dummyHash;
+
+            var result = hasher.VerifyHashedPassword(user!, passwordToVerify, loginDto.Password);
+
+            if (user is null)
             {
-                Console.WriteLine(user.PasswordHash);
                 return Results.Unauthorized();
             }
 
-            List<Claim> claims =
-            [
-                new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new(JwtRegisteredClaimNames.Email, loginDto.Email),
-                new(Claims.Role, user.Role.ToString()), // TODO: do poprawy
-                new(JwtRegisteredClaimNames.Jti, clock.NowOffset().ToUnixTimeSeconds().ToString(),
-                    ClaimValueTypes.String)
-            ];
+            switch (result)
+            {
+                case PasswordVerificationResult.Failed:
+                    return Results.Unauthorized();
+                case PasswordVerificationResult.Success:
+                    break;
+                case PasswordVerificationResult.SuccessRehashNeeded:
+                {
+                    await RehashUserPassword(hasher, user, loginDto.Password, userRepository);
+                    break;
+                }
+            }
+
+            var userClaims =
+                new JwtUserClaims(user.Id, loginDto.Email, user.Role, user.JobTitle, user.OnboardingStatus).ToClaims();
+
+            var sessionId = Guid.NewGuid().ToString();
+
+            var otherClaims = new List<Claim>
+            {
+                new("session_id", sessionId)
+            };
+
+            var claims = userClaims.Concat(otherClaims);
 
             var identity = new ClaimsIdentity(claims: claims, authenticationType: "Cookies", roleType: Claims.Role);
             var principal = new ClaimsPrincipal(identity);
@@ -72,6 +104,30 @@ public static class AuthEndpoints
 
             return Results.Ok();
         }).AllowAnonymous();
+    }
+
+    private static async Task RehashUserPassword(IPasswordHasher<User> hasher, User user, string inputPassword,
+        IUserRepository userRepository)
+    {
+        var newHash = hasher.HashPassword(user, inputPassword);
+        var updatedUser = user.UpdatePassword(newHash);
+        await userRepository.UpdateUserAsync(updatedUser);
+    }
+
+    public static void MapCookiesLogoutEndpoint(this WebApplication app)
+    {
+        app.MapPost("/auth/logout", async (ISessionBlacklist sessionBlacklist, HttpContext context) =>
+        {
+            var sessionId = context.User.FindFirst("session_id")?.Value;
+
+            if (sessionId is null) return Results.Unauthorized();
+
+            await sessionBlacklist.RevokeSession(sessionId);
+
+            await context.SignOutAsync("Cookies");
+
+            return Results.Ok();
+        });
     }
 
     public static void MapDebugClaimsEndpoint(this WebApplication app)

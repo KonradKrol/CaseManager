@@ -48,6 +48,11 @@ public class User
     public string PasswordHash { get; }
 
     public string FullName => $"{Name} {Surname}";
+
+    public User UpdatePassword(string passwordHash)
+    {
+        return new User(Id, Name, Surname, Email, Role, JobTitle, OnboardingStatus, passwordHash);
+    }
 }
 
 public enum OnboardingStatus

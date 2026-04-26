@@ -8,6 +8,7 @@ using CaseManager.BackgroundJobs;
 using CaseManager.Config;
 using CaseManager.DomainModels;
 using CaseManager.Dto;
+using CaseManager.Exceptions;
 using CaseManager.Middleware;
 using CaseManager.Repository;
 using CaseManager.Repository.FileSystem;
@@ -15,23 +16,32 @@ using CaseManager.Repository.InMemory;
 using CaseManager.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Scalar.AspNetCore;
 using SystemClock = CaseManager.Services.SystemClock;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// TODO: Introduce Application Services (~ Use cases)
+
 if (builder.Environment.IsDevelopment())
 {
-    builder.Services
-        .AddAuthentication("Dev")
-        .AddScheme<AuthenticationSchemeOptions, LocalDevAuthenticationHandler>("Dev", _ => { });
+    builder.Services.AddCookiesAuth(builder.Configuration, environment: builder.Environment);
+    builder.Services.AddSingleton<ISessionBlacklist, InMemorySessionBlacklist>();
+
+    // builder.Services
+    //     .AddAuthentication("Dev")
+    //     .AddScheme<AuthenticationSchemeOptions, LocalDevAuthenticationHandler>("Dev", _ => { });
 }
 else
 {
-    builder.Services.AddJwtBearerAuth(builder.Configuration);
-    // builder.Services.AddCookiesAuth(builder.Configuration);
+    // builder.Services.AddJwtBearerAuth(builder.Configuration);
+    builder.Services.AddCookiesAuth(builder.Configuration, environment: builder.Environment);
+    builder.Services.AddSingleton<ISessionBlacklist, InMemorySessionBlacklist>();
 }
+
+builder.Services.AddPasswordHasher();
 
 builder.Services.AddCaseManagerAuthorization(builder.Configuration);
 
@@ -42,6 +52,7 @@ builder.Services.AddAutoMapper((_, _) => { }, typeof(Program));
 builder.Services.AddValidatorsFromAssemblyContaining(typeof(Program));
 builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IJwtAuthService, SemiProdJwtAuthService>(sp =>
@@ -82,7 +93,7 @@ app.MapPost("/cases", async (CreateCaseDto createCaseDto, HttpContext context, I
     var assignedUserIds = createCaseDto.AssignedTo;
     if (assignedUserIds is not null)
     {
-        var notExistingIds = await userRepository.GetNotExistingUserIds(assignedUserIds);
+        var notExistingIds = await userRepository.GetNotExistingUserIdsAsync(assignedUserIds);
         if (notExistingIds.Any())
         {
             return Results.BadRequest(new Dictionary<string, object> // TODO: Is 409 good?
@@ -93,7 +104,7 @@ app.MapPost("/cases", async (CreateCaseDto createCaseDto, HttpContext context, I
     }
 
 
-    var userExists = await userRepository.UserExists(userId);
+    var userExists = await userRepository.UserExistsAsync(userId);
     if (!userExists)
     {
         return Results.Unauthorized();
@@ -162,21 +173,25 @@ app.MapPatch("/cases/{id:guid}/history", (Guid id, IMapper mapper) => { return R
     .RequireAuthorization(Policies.CaseAuthorOrActiveAdmin);
 
 app.MapPost("/cases/{caseId:guid}/comments", async (Guid caseId, ICaseRepository cases,
-    ICommentRepository commentRepository, AddCommentDto addCommentDto, IMapper mapper) =>
+    ICommentRepository commentRepository, AddCommentDto addCommentDto, IMapper mapper, HttpContext context) =>
 {
-    // var caseExists = await cases.CaseExists(caseId);
-    //
-    // if (!caseExists)
-    // {
-    //     return Results.NotFound();
-    // }
-    // TODO: Czy to i tak będzie wyłapane przez ICommentRepository?
+    var caseExists = await cases.CaseExists(caseId);
+
+    if (!caseExists)
+    {
+        return Results.NotFound();
+    }
+
+    var sub = context.User.FindFirst("sub")?.Value;
+    var parsedUserId = Guid.TryParse(sub ?? "", out var userId);
+    if (!parsedUserId) return Results.Unauthorized();
 
     var commentId = Guid.NewGuid();
     var comment = mapper.Map<Comment>(addCommentDto, options =>
     {
         options.Items["Id"] = commentId;
         options.Items["CaseId"] = caseId;
+        options.Items["UserId"] = userId;
     });
 
     await commentRepository.AddComment(comment);
@@ -186,23 +201,37 @@ app.MapPost("/cases/{caseId:guid}/comments", async (Guid caseId, ICaseRepository
 
 app.MapGet("/cases/{caseId:guid}/comments", async (Guid caseId, ICommentRepository commentRepository, IMapper mapper) =>
 {
-    var comments = await commentRepository.GetAllCommentsOf(caseId);
-    var commentDtos = comments.Select(mapper.Map<CommentDetailsDto>);
+    try
+    {
+        var comments = await commentRepository.GetAllCommentsOf(caseId);
 
-    return Results.Ok(new { Comments = commentDtos });
+        var commentDtos = comments.Select(mapper.Map<CommentDetailsDto>);
+
+        return Results.Ok(new { Comments = commentDtos });
+    }
+    catch (CaseNotExistsException)
+    {
+        return Results.NotFound(new { CaseId = caseId });
+    }
 }).RequireAuthorization(Policies.AuthenticatedOnly);
 
 app.MapGet("/comments/{id:guid}", async (Guid id, ICommentRepository commentRepository, IMapper mapper) =>
 {
     var comment = await commentRepository.GetCommentById(id);
+
+    if (comment is null)
+    {
+        return Results.NotFound();
+    }
+
     var commentDto = mapper.Map<CommentDetailsDto>(comment);
 
-    return commentDto;
+    return Results.Ok(commentDto);
 }).RequireAuthorization(Policies.AuthenticatedOnly);
 
 app.MapPost("/users",
     async ([FromBody] RegisterUserDto registerUserDto, IMapper mapper, IValidator<RegisterUserDto> validator,
-        IUserRepository userRepository, ILogger<Program> logger) =>
+        IUserRepository userRepository, ILogger<Program> logger, IPasswordHasher<User> hasher) =>
     {
         validator.ValidateAndThrow(registerUserDto);
 
@@ -220,7 +249,7 @@ app.MapPost("/users",
 
         var userId = Guid.NewGuid();
 
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(registerUserDto.Password);
+        var passwordHash = hasher.HashPassword(null!, registerUserDto.Password);
 
         var user = mapper.Map<User>(registerUserDto, options =>
         {
@@ -228,7 +257,7 @@ app.MapPost("/users",
             options.Items["PasswordHash"] = passwordHash;
         });
 
-        await userRepository.AddUser(user);
+        await userRepository.AddUserAsync(user);
 
         var responseDictionary = new Dictionary<string, object>
         {
@@ -240,14 +269,18 @@ app.MapPost("/users",
 
 app.MapGet("/users", async (IMapper mapper, IUserRepository userRepository, ILogger<Program> logger) =>
 {
-    var users = (await userRepository.GetAllUsers()).ToList();
+    var users = (await userRepository.GetAllUsersAsync()).ToList();
 
     var userDetailsDtos = users.Select(mapper.Map<UserDetailsDto>);
 
     return Results.Ok(userDetailsDtos);
 }).RequireAuthorization(Policies.AdminOnly);
 
-app.MapJwtBearerLoginEndpoint();
+// app.MapJwtBearerLoginEndpoint();
+
+app.MapCookiesLoginEndpoint();
+app.MapCookiesLogoutEndpoint();
+
 app.MapDebugClaimsEndpoint();
 
 app.MapScalarApiReference().AllowAnonymous();

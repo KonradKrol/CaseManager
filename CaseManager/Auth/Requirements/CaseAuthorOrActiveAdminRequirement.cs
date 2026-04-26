@@ -27,7 +27,7 @@ public class CaseAuthorOrActiveAdminHandler(
         }
 
         var userId = Guid.Parse(sub);
-        var user = await userRepository.GetUserById(userId);
+        var user = await userRepository.GetUserByIdAsync(userId);
 
         switch (user)
         {

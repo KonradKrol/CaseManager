@@ -28,8 +28,15 @@ public class FileSystemUsers : IUserRepository
     private async Task<List<UserRecord>> ReadAll()
     {
         await using var stream = File.OpenRead(_filePath);
-        return await JsonSerializer.DeserializeAsync<List<UserRecord>>(stream)
-               ?? new List<UserRecord>();
+        try
+        {
+            return await JsonSerializer.DeserializeAsync<List<UserRecord>>(stream)
+                   ?? [];
+        }
+        catch (JsonException e)
+        {
+            return [];
+        }
     }
 
     private async Task WriteAll(List<UserRecord> records)
@@ -38,14 +45,20 @@ public class FileSystemUsers : IUserRepository
         await JsonSerializer.SerializeAsync(stream, records);
     }
 
-    public async Task<IEnumerable<User>> GetAllUsers()
+    public async Task<IEnumerable<User>> GetAllUsersAsync()
     {
         var records = await ReadAll();
         return records.Select(UserMapper.ToDomain);
     }
 
+    public async Task<int> GetCountAsync()
+    {
+        return (await GetAllUsersAsync())
+            .Count();
+    }
 
-    public async Task<User?> GetUserById(Guid id)
+
+    public async Task<User?> GetUserByIdAsync(Guid id)
     {
         var users = await ReadAll();
         var userDto = users.SingleOrDefault(u => u.Id == id);
@@ -53,26 +66,26 @@ public class FileSystemUsers : IUserRepository
         return userDto is null ? null : UserMapper.ToDomain(userDto);
     }
 
-    public async Task<User?> GetUserByEmail(string email)
+    public async Task<User?> GetUserByEmailAsync(string email)
     {
         var users = await ReadAll();
         var userDto = users.SingleOrDefault(u => u.Email == email);
         return userDto is null ? null : UserMapper.ToDomain(userDto);
     }
 
-    public async Task<bool> UserExists(Guid id)
+    public async Task<bool> UserExistsAsync(Guid id)
     {
-        return await GetUserById(id) is not null;
+        return await GetUserByIdAsync(id) is not null;
     }
 
-    public async Task<bool> UserExists(string email)
+    public async Task<bool> UserExistsAsync(string email)
     {
-        return await GetUserByEmail(email) is not null;
+        return await GetUserByEmailAsync(email) is not null;
     }
 
-    public async Task<bool> EveryUserExists(IEnumerable<Guid> ids)
+    public async Task<bool> EveryUserExistsAsync(IEnumerable<Guid> ids)
     {
-        return (await GetNotExistingUserIds(ids)).Count() == 0;
+        return (await GetNotExistingUserIdsAsync(ids)).Count() == 0;
     }
 
     public Task<bool> GetNotExistingUserIds(IEnumerable<Guid> ids, out IEnumerable<Guid> notExistingIds)
@@ -80,7 +93,7 @@ public class FileSystemUsers : IUserRepository
         throw new NotImplementedException();
     }
 
-    public async Task<IEnumerable<Guid>> GetNotExistingUserIds(IEnumerable<Guid> ids)
+    public async Task<IEnumerable<Guid>> GetNotExistingUserIdsAsync(IEnumerable<Guid> ids)
     {
         var users = await ReadAll();
 
@@ -92,11 +105,39 @@ public class FileSystemUsers : IUserRepository
     }
 
 
-    public async Task AddUser(User user)
+    public async Task AddUserAsync(User user)
     {
         var records = await ReadAll();
         records.Add(UserMapper.ToRecord(user));
         await WriteAll(records);
+    }
+
+    public async Task<bool> DeleteUserAsync(Guid id)
+    {
+        var records = await ReadAll();
+        var indexToRemove = records.FindIndex(record => record.Id == id);
+        if (indexToRemove == -1)
+        {
+            return false;
+        }
+
+        records.RemoveAt(indexToRemove);
+        await WriteAll(records);
+        return true;
+    }
+
+    public async Task<bool> UpdateUserAsync(User user)
+    {
+        var records = await ReadAll();
+        var indexToUpdate = records.FindIndex(record => record.Id == user.Id);
+        if (indexToUpdate == -1)
+        {
+            return false;
+        }
+
+        records[indexToUpdate] = UserMapper.ToRecord(user);
+        await WriteAll(records);
+        return true;
     }
 }
 

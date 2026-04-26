@@ -9,7 +9,7 @@ namespace CaseManager.Services;
 
 public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuthService
 {
-    private const string IssuerUrl = "https://auth.case-manager-internal-api.eu";
+    private const string IssuerUrl = "https://auth.case-manager-internal-api.eu"; // TODO: Make it config-driven
     private const string Audience = "case-manager";
 
     public string GenerateJwt(JwtUserClaims claims)
@@ -41,7 +41,7 @@ public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuth
                     ClaimValueTypes.String)
             ], // Do JWT dajemy stałe rzeczy i tożsamość (identity)
             notBefore: clock.UtcNow(),
-            expires: clock.UtcNow().Add(TimeSpan.FromMinutes(15)),
+            expires: clock.UtcNow().Add(ExpirationSpan),
             signingCredentials: credentials
         );
 
@@ -49,4 +49,6 @@ public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuth
 
         return cleanJwt;
     }
+
+    private static TimeSpan ExpirationSpan => TimeSpan.FromMinutes(5);
 };

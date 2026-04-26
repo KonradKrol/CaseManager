@@ -1,4 +1,4 @@
-namespace CaseManager;
+namespace CaseManager.Utils;
 
 public static class ListUtils
 {

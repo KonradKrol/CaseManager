@@ -1,4 +1,5 @@
 using CaseManager.DomainModels;
+using CaseManager.Exceptions;
 
 namespace CaseManager.Repository.InMemory;
 
@@ -11,14 +12,14 @@ public class InMemoryComments : ICommentRepository
     {
         return Task.FromResult<IEnumerable<Comment>>(_commentsByCase.TryGetValue(caseId, out var comments)
             ? comments
-            : []);
+            : throw new CaseNotExistsException(caseId));
     }
 
     public Task<Comment?> GetFirstCommentOf(Guid caseId)
     {
         return Task.FromResult(_commentsByCase.TryGetValue(caseId, out var comments)
-            ? comments.First()
-            : null);
+            ? comments.FirstOrDefault()
+            : throw new CaseNotExistsException(caseId));
     }
 
     public Task<Comment?> GetCommentById(Guid id)

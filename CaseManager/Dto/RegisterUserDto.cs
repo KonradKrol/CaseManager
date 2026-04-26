@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using CaseManager.DomainModels;
+using CaseManager.Utils;
 using FluentValidation;
 
 namespace CaseManager.Dto;
@@ -22,10 +24,13 @@ public class RegisterUserDtoValidator : AbstractValidator<RegisterUserDto>
     {
         RuleFor(x => x.Name).NotEmpty();
         RuleFor(x => x.Surname).NotEmpty().NotNull();
-        RuleFor(x => x.Role).Must(x => x is "Admin" or "RegularUser");
+        RuleFor(x => x.Role).Must(EnumUtils.ContainsValue<UserRole>)
+            .WithMessage(x => $"{x.Role} is not a valid role");
         RuleFor(x => x.Email).EmailAddress();
-        RuleFor(x => x.JobTitle).NotEmpty();
-        RuleFor(x => x.AdminConfirmation).NotNull().NotEmpty().When(x => x.Role is "Admin");
+        RuleFor(x => x.JobTitle).NotEmpty().Must(EnumUtils.ContainsValue<JobTitle>)
+            .WithMessage(x => $"{x.JobTitle} is not a valid job title");
+        RuleFor(x => x.AdminConfirmation).NotEmpty().When(x => x.Role is "Admin")
+            .WithMessage("Provide AdminConfirmation");
         RuleFor(x => x.Password).NotEmpty()
             .Equal(x => x.ConfirmPassword);
     }

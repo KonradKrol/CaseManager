@@ -13,7 +13,8 @@ public class CommentMapping : Profile
             {
                 var id = (Guid)context.Items["Id"];
                 var caseId = (Guid)context.Items["CaseId"];
-                return new Comment(id, caseId, dto.UserId, dto.Message);
+                var userId = (Guid)context.Items["UserId"];
+                return new Comment(id, caseId, userId, dto.Message);
             });
 
         CreateMap<Comment, CommentDetailsDto>();
