@@ -10,6 +10,20 @@ public interface IJwtAuthService
     string GenerateJwt(JwtUserClaims claims);
 }
 
+public interface IJwtUserClaimsFactory
+{
+    JwtUserClaims Create(User user);
+}
+
+public class DefaultJwtUserClaimsFactory : IJwtUserClaimsFactory
+{
+    public JwtUserClaims Create(User user)
+    {
+        return new JwtUserClaims(user.Id, user.Email, user.Role, user.JobTitle,
+            user.OnboardingStatus);
+    }
+}
+
 public record JwtUserClaims(
     Guid Sub,
     string Email,

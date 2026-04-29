@@ -11,7 +11,7 @@ public class AddMockUsersJob(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var usersCount = await userRepository.GetCountAsync();
-        if (usersCount < 4)
+        if (usersCount < 2)
             await SeedUsers();
     }
 

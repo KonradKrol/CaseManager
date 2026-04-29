@@ -5,15 +5,15 @@ using FluentValidation;
 namespace CaseManager.Dto;
 
 // To make it secure: (1) hash the password, (2) use HTTPS, (3) "invalid credentials" instead of "wrong password"
-public class LoginDto
+public class LogInDto
 {
     public string Email { get; init; }
     public string Password { get; init; }
 }
 
-public class LoginDtoValidator : AbstractValidator<LoginDto>
+public class LogInDtoValidator : AbstractValidator<LogInDto>
 {
-    public LoginDtoValidator()
+    public LogInDtoValidator()
     {
         RuleFor(x => x.Email).NotNull().EmailAddress();
         RuleFor(x => x.Password).NotNull().NotEmpty();

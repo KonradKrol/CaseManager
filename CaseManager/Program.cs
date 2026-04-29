@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using AutoMapper;
 using CaseManager.Auth;
+using CaseManager.Auth.RefreshTokens;
 using CaseManager.BackgroundJobs;
 using CaseManager.Config;
 using CaseManager.DomainModels;
@@ -27,7 +28,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 if (builder.Environment.IsDevelopment())
 {
-    builder.Services.AddCookiesAuth(builder.Configuration, environment: builder.Environment);
+    builder.Services.AddJwtBearerAuth(builder.Configuration);
+    // builder.Services.AddCookiesAuth(builder.Configuration, environment: builder.Environment);
     builder.Services.AddSingleton<ISessionBlacklist, InMemorySessionBlacklist>();
 
     // builder.Services
@@ -36,8 +38,8 @@ if (builder.Environment.IsDevelopment())
 }
 else
 {
-    // builder.Services.AddJwtBearerAuth(builder.Configuration);
-    builder.Services.AddCookiesAuth(builder.Configuration, environment: builder.Environment);
+    builder.Services.AddJwtBearerAuth(builder.Configuration);
+    // builder.Services.AddCookiesAuth(builder.Configuration, environment: builder.Environment);
     builder.Services.AddSingleton<ISessionBlacklist, InMemorySessionBlacklist>();
 }
 
@@ -53,11 +55,13 @@ builder.Services.AddValidatorsFromAssemblyContaining(typeof(Program));
 builder.Services.AddControllers().AddJsonOptions(o =>
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-
+builder.Services.AddSingleton<IRefreshTokenGenerator, DefaultRefreshTokenGenerator>();
+builder.Services.AddSingleton<IJwtUserClaimsFactory, DefaultJwtUserClaimsFactory>();
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IJwtAuthService, SemiProdJwtAuthService>(sp =>
     new SemiProdJwtAuthService(builder.Configuration["Jwt:Key"] ?? throw new MissingFieldException("Missing Jwt:Key"),
         sp.GetRequiredService<IClock>()));
+builder.Services.AddSingleton<IRefreshTokens, InMemoryRefreshTokens>();
 builder.Services.AddSingleton<IUserRepository, FileSystemUsers>();
 builder.Services.AddSingleton<ICaseRepository, InMemoryCases>();
 builder.Services.AddSingleton<ICommentRepository, InMemoryComments>();
@@ -276,12 +280,13 @@ app.MapGet("/users", async (IMapper mapper, IUserRepository userRepository, ILog
     return Results.Ok(userDetailsDtos);
 }).RequireAuthorization(Policies.AdminOnly);
 
-// app.MapJwtBearerLoginEndpoint();
+app.MapJwtBearerLoginEndpoints();
 
-app.MapCookiesLoginEndpoint();
-app.MapCookiesLogoutEndpoint();
+// app.MapCookiesLoginEndpoint();
+// app.MapCookiesLogoutEndpoint();
 
 app.MapDebugClaimsEndpoint();
+app.MapDeleteUserEndpoint();
 
 app.MapScalarApiReference().AllowAnonymous();
 app.Run();
