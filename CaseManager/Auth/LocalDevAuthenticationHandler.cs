@@ -30,14 +30,7 @@ public class LocalDevAuthenticationHandler : AuthenticationHandler<Authenticatio
             new Claim(JwtRegisteredClaimNames.Jti, DateTimeOffset.Now.ToUnixTimeSeconds().ToString(),
                 ClaimValueTypes.String)
         };
-
-        var importantClaims = claims
-            .Where(c =>
-                c.Type is Claims.JobTitle or Claims.Role or JwtRegisteredClaimNames.Sub or Claims.OnboardingStatus)
-            .ToDictionary(c => c.Type, c => c.Value);
-
-        Logger.LogInformation("Important claims: {@Claims}", importantClaims);
-
+        
         var identity = new ClaimsIdentity(claims, "Dev", Claims.Name, Claims.Role);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, "Dev");

@@ -1,0 +1,11 @@
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+namespace CaseManager.HealthChecks;
+
+public class DatabaseHealthCheck : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = new CancellationToken())
+    {
+        return HealthCheckResult.Unhealthy("DB does not exist");
+    }
+}

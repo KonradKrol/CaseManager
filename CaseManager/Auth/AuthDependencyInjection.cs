@@ -46,7 +46,8 @@ public static class AuthDependencyInjection
                     ValidateLifetime = true, // sprawdza nbf (not before) i exp (expiration). Czy przeterminowany?
                     ValidateIssuerSigningKey = true, // sprawdzaj, czy signature się zgadza
                     IssuerSigningKey =
-                        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecurityKey))
+                        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecurityKey)),
+                    ClockSkew = TimeSpan.Zero
                 };
 
                 options.Events = new JwtBearerEvents

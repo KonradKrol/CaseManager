@@ -16,15 +16,15 @@ namespace CaseManager.Auth;
 
 public static class AuthEndpoints
 {
-    // TODO: Nadgoń, bo cookies ma lepsze security
     public static void MapJwtBearerLoginEndpoints(this WebApplication app)
     {
         app.MapPost("/auth/login", async ([FromBody] LogInDto logInDto, IUserRepository userRepository,
             IJwtAuthService authService, IPasswordHasher<User> hasher, IJwtUserClaimsFactory userClaimsFactory,
-            IRefreshTokens refreshTokens, IRefreshTokenGenerator refreshTokenGenerator) =>
+            IRefreshTokens refreshTokens, IRefreshTokenGenerator refreshTokenGenerator, ILoggerFactory loggerFactory) =>
         {
-            var user = await userRepository.GetUserByEmailAsync(logInDto.Email);
+            var logger = loggerFactory.CreateLogger("Endpoints.Auth.Jwt.Login");
 
+            var user = await userRepository.GetUserByEmailAsync(logInDto.Email);
 
             const string dummyHash =
                 "AQAAAAIAAw1AAAAAEDthRHNbQDbCZSbmNjkfdTa0EJD6HSqxf1zGIxIn7tC0weEBcWo2USOXP42N6se41w==";
@@ -37,82 +37,120 @@ public static class AuthEndpoints
 
             if (user is null)
             {
-                return Results.Unauthorized();
+                logger.LogWarning(
+                    "Failed login attempt for email {Email}",
+                    logInDto.Email);
+                return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
             }
 
             var userId = user.Id;
 
-            switch (result)
+            using (logger.BeginScope(new Dictionary<string, object>
+                   {
+                       ["UserId"] = userId
+                   }))
             {
-                case PasswordVerificationResult.Failed:
-                    return Results.Unauthorized();
-                case PasswordVerificationResult.Success:
-                    break;
-                case PasswordVerificationResult.SuccessRehashNeeded:
+                switch (result)
                 {
-                    await RehashUserPassword(hasher, user, passwordToVerify, userRepository);
-                    break;
+                    case PasswordVerificationResult.Failed:
+                        return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                    case PasswordVerificationResult.Success:
+                        break;
+                    case PasswordVerificationResult.SuccessRehashNeeded:
+                    {
+                        await RehashUserPassword(hasher, user, passwordToVerify, userRepository);
+                        break;
+                    }
                 }
+
+                var claims = userClaimsFactory.Create(user);
+
+                var jwt = authService.GenerateJwt(claims);
+
+                var rawToken =
+                    await GenerateAndPersistRefreshToken(userId, null, refreshTokens, refreshTokenGenerator);
+
+                logger.LogInformation("Logged in");
+
+                return Results.Ok(new { AccessToken = jwt, RefreshToken = rawToken });
             }
-
-            var claims = userClaimsFactory.Create(user);
-
-            var jwt = authService.GenerateJwt(claims);
-
-            var rawToken =
-                await GenerateAndPersistRefreshToken(userId, null, refreshTokens, refreshTokenGenerator);
-
-            return Results.Ok(new { AccessToken = jwt, RefreshToken = rawToken });
         }).AllowAnonymous();
 
         app.MapPost("/auth/login_with_refresh_token", async (
             [FromBody] LogInWithRefreshTokenDto logInWithRefreshTokenDto, IRefreshTokens refreshTokens,
             IRefreshTokenGenerator refreshTokenGenerator, IUserRepository userRepository,
-            IJwtUserClaimsFactory userClaimsFactory, IJwtAuthService authService, ILogger<Program> logger) =>
+            IJwtUserClaimsFactory userClaimsFactory, IJwtAuthService authService, ILoggerFactory loggerFactory) =>
         {
+            var logger = loggerFactory.CreateLogger("Endpoints.Auth.Jwt.LoginWithRefreshToken");
+
             var inputToken = logInWithRefreshTokenDto.RefreshToken;
             var tokenFromDatabase = await refreshTokens.GetTokenAsync(inputToken);
+
             if (tokenFromDatabase is null || tokenFromDatabase.HasExpired(DateTime.UtcNow))
             {
-                return Results.Unauthorized();
+                logger.LogWarning("Invalid or expired refresh token login attempt");
+                return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            var userId = tokenFromDatabase.UserId;
-
-            if (tokenFromDatabase.RevokedAt is not null)
+            using (logger.BeginScope(new Dictionary<string, object>
+                   {
+                       ["RefreshTokenId"] = tokenFromDatabase.Id,
+                       ["UserId"] = tokenFromDatabase.UserId,
+                   }))
             {
-                var howManyRevoked = await refreshTokens.RevokeAllByUserAsync(userId);
-                logger.LogInformation("Revoked {HowManyRevoked} tokens of user {UserId}", howManyRevoked, userId);
-                return Results.Unauthorized();
+                var userId = tokenFromDatabase.UserId;
+
+                var latestToken = await refreshTokens.GetLatestUserTokenAsync(userId);
+
+                var moreRecentTokenExists = latestToken is not null && latestToken.Id != tokenFromDatabase.Id;
+
+                if (tokenFromDatabase.RevokedAt is not null || moreRecentTokenExists)
+                {
+                    logger.LogWarning("Tried to use old refresh token — revoking all tokens");
+                    var howManyRevoked = await refreshTokens.RevokeAllByUserAsync(userId);
+                    logger.LogDebug("Revoked {HowManyRevoked} refresh tokens after using an old one",
+                        howManyRevoked);
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                var user = await userRepository.GetUserByIdAsync(userId);
+                if (user is null)
+                {
+                    logger.LogWarning(
+                        "Refresh token belongs to non-existing user");
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                var claims = userClaimsFactory.Create(user);
+
+                var jwt = authService.GenerateJwt(claims);
+
+                var rawToken =
+                    await GenerateAndPersistRefreshToken(userId, tokenFromDatabase, refreshTokens,
+                        refreshTokenGenerator);
+
+                logger.LogInformation("User logged in via refresh token");
+
+                return Results.Ok(new { AccessToken = jwt, RefreshToken = rawToken });
             }
-
-            var user = await userRepository.GetUserByIdAsync(userId);
-            if (user is null)
-            {
-                return Results.Unauthorized();
-            }
-
-            var claims = userClaimsFactory.Create(user);
-
-            var jwt = authService.GenerateJwt(claims);
-
-            var rawToken =
-                await GenerateAndPersistRefreshToken(userId, tokenFromDatabase, refreshTokens, refreshTokenGenerator);
-
-            return Results.Ok(new { RefreshToken = rawToken, AccessToken = jwt });
         }).AllowAnonymous();
 
         app.MapDelete("/auth/refresh_tokens",
-            async (ClaimsPrincipal httpUser, IRefreshTokens refreshTokens, ILogger<Program> logger) =>
+            async (ClaimsPrincipal httpUser, IRefreshTokens refreshTokens, ILoggerFactory loggerFactory) =>
             {
+                var logger = loggerFactory.CreateLogger("Endpoints.Auth.Jwt.RefreshTokens.Delete");
+
                 var userIdClaim = httpUser.FindFirst("sub")?.Value;
 
                 if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
-                    return Results.Unauthorized();
+                {
+                    logger.LogWarning("Request without valid 'sub' claim attempted to revoke refresh tokens");
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
 
-                var revoked = await refreshTokens.RevokeAllByUserAsync(userId);
+                var revokedCount = await refreshTokens.RevokeAllByUserAsync(userId);
 
-                logger.LogInformation("Revoked {Count} tokens for user {UserId}", revoked, userId);
+                logger.LogInformation("Revoked {RevokedTokensCount} tokens for user {UserId}", revokedCount, userId);
 
                 return Results.Ok();
             }).RequireAuthorization(Policies.AuthenticatedOnly);
@@ -142,8 +180,10 @@ public static class AuthEndpoints
     public static void MapCookiesLoginEndpoint(this WebApplication app)
     {
         app.MapPost("/auth/login", async ([FromBody] LogInDto logInDto, IUserRepository userRepository, IClock clock,
-            HttpContext httpContext, ISessionBlacklist _, IPasswordHasher<User> hasher) =>
+            HttpContext httpContext, ISessionBlacklist _, IPasswordHasher<User> hasher, ILoggerFactory loggerFactory) =>
         {
+            var logger = loggerFactory.CreateLogger("Endpoints.Auth.Cookies.Login");
+
             var user = await userRepository.GetUserByEmailAsync(logInDto.Email);
 
             const string dummyHash =
@@ -155,40 +195,62 @@ public static class AuthEndpoints
 
             if (user is null)
             {
-                return Results.Unauthorized();
+                logger.LogWarning(
+                    "Failed login attempt for email {Email}",
+                    logInDto.Email);
+                return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            switch (result)
+            using (logger.BeginScope(new Dictionary<string, object>
+                   {
+                       ["UserId"] = user.Id
+                   }))
             {
-                case PasswordVerificationResult.Failed:
-                    return Results.Unauthorized();
-                case PasswordVerificationResult.Success:
-                    break;
-                case PasswordVerificationResult.SuccessRehashNeeded:
+                switch (result)
                 {
-                    await RehashUserPassword(hasher, user, logInDto.Password, userRepository);
-                    break;
+                    case PasswordVerificationResult.Failed:
+                        logger.LogWarning(
+                            "Failed login attempt for email {Email}",
+                            logInDto.Email);
+                        return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                    case PasswordVerificationResult.Success:
+                        break;
+                    case PasswordVerificationResult.SuccessRehashNeeded:
+                    {
+                        await RehashUserPassword(hasher, user, logInDto.Password, userRepository);
+                        break;
+                    }
+                }
+
+                var userClaims =
+                    new JwtUserClaims(user.Id, logInDto.Email, user.Role, user.JobTitle, user.OnboardingStatus)
+                        .ToClaims();
+
+                var sessionId = Guid.NewGuid().ToString();
+
+                using (logger.BeginScope(new Dictionary<string, object>
+                       {
+                           ["SessionId"] = sessionId
+                       }))
+                {
+                    var otherClaims = new List<Claim>
+                    {
+                        new("session_id", sessionId)
+                    };
+
+                    var claims = userClaims.Concat(otherClaims);
+
+                    var identity = new ClaimsIdentity(claims: claims, authenticationType: "Cookies",
+                        roleType: Claims.Role);
+                    var principal = new ClaimsPrincipal(identity);
+
+                    await httpContext.SignInAsync("Cookies", principal);
+
+                    logger.LogInformation("User logged in (returning cookies).");
+
+                    return Results.Ok();
                 }
             }
-
-            var userClaims =
-                new JwtUserClaims(user.Id, logInDto.Email, user.Role, user.JobTitle, user.OnboardingStatus).ToClaims();
-
-            var sessionId = Guid.NewGuid().ToString();
-
-            var otherClaims = new List<Claim>
-            {
-                new("session_id", sessionId)
-            };
-
-            var claims = userClaims.Concat(otherClaims);
-
-            var identity = new ClaimsIdentity(claims: claims, authenticationType: "Cookies", roleType: Claims.Role);
-            var principal = new ClaimsPrincipal(identity);
-
-            await httpContext.SignInAsync("Cookies", principal);
-
-            return Results.Ok();
         }).AllowAnonymous();
     }
 
@@ -200,88 +262,172 @@ public static class AuthEndpoints
         await userRepository.UpdateUserAsync(updatedUser);
     }
 
+    // TODO: Logout: jwt bearer
     public static void MapCookiesLogoutEndpoint(this WebApplication app)
     {
-        app.MapPost("/auth/logout", async (ISessionBlacklist sessionBlacklist, HttpContext context) =>
-        {
-            var sessionId = context.User.FindFirst("session_id")?.Value;
+        app.MapPost("/auth/logout",
+            async (ISessionBlacklist sessionBlacklist, HttpContext context, ILoggerFactory loggerFactory) =>
+            {
+                var logger = loggerFactory.CreateLogger("Endpoints.Auth.Cookies.Logout");
+                var sessionId = context.User.FindFirst("session_id")?.Value;
 
-            if (sessionId is null) return Results.Unauthorized();
+                if (sessionId is null)
+                {
+                    logger.LogWarning("Request without valid 'session_id' claim attempted to log-out");
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
 
-            await sessionBlacklist.RevokeSession(sessionId);
+                using (logger.BeginScope(new Dictionary<string, object>
+                       {
+                           ["SessionId"] = sessionId
+                       }))
+                {
+                    await sessionBlacklist.RevokeSession(sessionId);
 
-            await context.SignOutAsync("Cookies");
+                    await context.SignOutAsync("Cookies");
 
-            return Results.Ok();
-        });
+                    logger.LogInformation(
+                        "Logged out");
+
+                    return Results.Ok();
+                }
+            });
     }
 
     public static void MapDebugClaimsEndpoint(this WebApplication app)
     {
         app.MapGet("/debug_claims",
-                (HttpContext ctx) => { return ctx.User.Claims.Select(c => new { c.Type, c.Value }); })
+                (HttpContext ctx, ILoggerFactory loggerFactory) =>
+                {
+                    var logger = loggerFactory.CreateLogger("Endpoints.DebugClaims");
+
+                    logger.LogDebug(
+                        "Requested claims debug");
+
+                    return ctx.User.Claims.Select(c => new { c.Type, c.Value });
+                })
             .RequireAuthorization(Policies.ItExpertOrAdmin);
     }
 
     public static void MapDeleteUserEndpoint(this WebApplication app)
     {
-        app.MapDelete("/users/me", async (ClaimsPrincipal httpUser, IUserRepository userRepository) =>
-        {
-            var userIdClaim = httpUser.FindFirst("sub")?.Value;
-
-            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
-                return Results.Unauthorized();
-
-            var user = await userRepository.GetUserByIdAsync(userId);
-            if (user is null)
+        app.MapDelete("/users/me",
+            async (ClaimsPrincipal httpUser, IUserRepository userRepository, ILoggerFactory loggerFactory) =>
             {
-                return Results.Unauthorized();
-            }
+                var logger = loggerFactory.CreateLogger("Endpoints.Users.Me.Delete");
 
-            if (user.Role == UserRole.Admin)
-            {
-                return Results.Problem(title: "Forbidden", detail: "Admins cannot delete themselves",
-                    statusCode: StatusCodes.Status403Forbidden);
-            }
-
-            if (user.OnboardingStatus != OnboardingStatus.Done)
-            {
-                return Results.Problem(
-                    title: "Forbidden",
-                    detail: "Account deletion is disabled until onboarding is approved",
-                    statusCode: StatusCodes.Status403Forbidden
-                );
-            }
-
-            var deletedSuccessfully = await userRepository.DeleteUserAsync(userId);
-            return deletedSuccessfully ? Results.Ok() : Results.NotFound();
-        }).RequireAuthorization(Policies.AuthenticatedOnly);
-
-        app.MapDelete("/users/{id:guid}",
-            async (Guid id, ClaimsPrincipal httpUser, HttpContext ctx,
-                IUserRepository userRepository) =>
-            {
                 var userIdClaim = httpUser.FindFirst("sub")?.Value;
 
                 if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
-                    return Results.Unauthorized();
+                {
+                    logger.LogWarning("Request without valid 'sub' claim attempted user self-deletion");
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                logger.LogInformation(
+                    "Requested self-deletion");
 
                 var user = await userRepository.GetUserByIdAsync(userId);
-                switch (user)
+                if (user is null)
                 {
-                    case null:
-                        return Results.Unauthorized();
-                    case { Role: UserRole.Admin, JobTitle: JobTitle.ItExpert }:
+                    logger.LogWarning(
+                        "User entity not found during self-deletion");
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                if (user.Role == UserRole.Admin)
+                {
+                    logger.LogWarning("Administrator tried to delete themselves");
+                    return Results.Problem(title: "Forbidden", detail: "Admins cannot delete themselves",
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+
+                if (user.OnboardingStatus != OnboardingStatus.Done)
+                {
+                    logger.LogWarning("Not onboarded user tried to delete themselves");
+
+                    return Results.Problem(
+                        title: "Forbidden",
+                        detail: "Account deletion is disabled until onboarding is approved",
+                        statusCode: StatusCodes.Status403Forbidden
+                    );
+                }
+
+                var deletedSuccessfully = await userRepository.DeleteUserAsync(userId);
+
+                if (deletedSuccessfully)
+                {
+                    logger.LogInformation("User deleted themselves.");
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Failed to delete user {UserId} because repository returned false",
+                        user.Id);
+                }
+
+                return deletedSuccessfully
+                    ? Results.Ok()
+                    : Results.Problem(statusCode: 500, title: "Deletion failed"); // Always use ProblemDetails
+            }).RequireAuthorization(Policies.AuthenticatedOnly);
+
+        app.MapDelete("/users/{id:guid}",
+            async (Guid id, ClaimsPrincipal httpUser, HttpContext ctx,
+                IUserRepository userRepository, ILoggerFactory loggerFactory) =>
+            {
+                var logger = loggerFactory.CreateLogger("Endpoints.Users.Delete");
+
+                var targetUserId = id;
+
+                var userIdClaim = httpUser.FindFirst("sub")?.Value;
+
+                if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+                {
+                    logger.LogWarning("Request without valid 'sub' claim attempted admin-access user deletion");
+                    return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                }
+
+                using (logger.BeginScope(new
+                       {
+                           DeletionTargetUserId = targetUserId, AdminUserId = userId
+                       })) // I defensively add AdminUserId if middleware changes and we won't have UserId
+                {
+                    logger.LogInformation("Admin requested user deletion");
+
+                    var adminUser = await userRepository.GetUserByIdAsync(userId);
+                    switch (adminUser)
                     {
-                        var deleted = await userRepository.DeleteUserAsync(id);
-                        return deleted ? Results.Ok() : Results.NotFound();
+                        case null:
+                            logger.LogWarning(
+                                "User not authorized to delete other users");
+                            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized);
+                        case { Role: UserRole.Admin, JobTitle: JobTitle.ItExpert }:
+                        {
+                            var deleted = await userRepository.DeleteUserAsync(targetUserId);
+
+                            if (deleted)
+                            {
+                                logger.LogInformation("User deleted by admin");
+                            }
+                            else
+                            {
+                                logger.LogWarning(
+                                    "User deletion failed (repository returned false)");
+                            }
+
+                            return deleted ? Results.Ok() : Results.Problem(statusCode: 500, title: "Deletion failed");
+                        }
+                        default:
+                            var reason = "Only It-Expert admins can delete other users' accounts";
+                            logger.LogWarning(
+                                "Failed to delete a user: {Reason}",
+                                reason);
+                            return Results.Problem(
+                                title: "Forbidden",
+                                detail: reason,
+                                statusCode: StatusCodes.Status403Forbidden
+                            );
                     }
-                    default:
-                        return Results.Problem(
-                            title: "Forbidden",
-                            detail: "Only It-Expert admins can delete other users' accounts",
-                            statusCode: StatusCodes.Status403Forbidden
-                        );
                 }
             }).RequireAuthorization(Policies.AdminOnly).RequireAuthorization(Policies.OnboardedOnly);
     }

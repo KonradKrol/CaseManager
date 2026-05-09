@@ -7,7 +7,8 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace CaseManager.Services;
 
-public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuthService
+public partial class SemiProdJwtAuthService(string securityKey, IClock clock, ILogger<SemiProdJwtAuthService> logger)
+    : IJwtAuthService
 {
     private const string IssuerUrl = "https://auth.case-manager-internal-api.eu"; // TODO: Make it config-driven
     private const string Audience = "case-manager";
@@ -37,7 +38,7 @@ public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuth
                 new Claim(Claims.Role, roleString),
                 new Claim(Claims.JobTitle, jobTitleString),
                 new Claim(Claims.OnboardingStatus, onboardingStatusString),
-                new Claim(JwtRegisteredClaimNames.Jti, clock.NowOffset().ToUnixTimeSeconds().ToString(),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString(),
                     ClaimValueTypes.String)
             ], // Do JWT dajemy stałe rzeczy i tożsamość (identity)
             notBefore: clock.UtcNow(),
@@ -47,8 +48,13 @@ public class SemiProdJwtAuthService(string securityKey, IClock clock) : IJwtAuth
 
         var cleanJwt = new JwtSecurityTokenHandler().WriteToken(token);
 
+        LogJwtIssued(logger, userId, Audience, IssuerUrl);
+
         return cleanJwt;
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "JWT issued for user {UserId} (aud: {Audience}, iss: {Issuer})")]
+    static partial void LogJwtIssued(ILogger logger, Guid userId, string audience, string issuer);
 
     private static TimeSpan ExpirationSpan => TimeSpan.FromMinutes(5);
 };

@@ -26,7 +26,7 @@ namespace CaseManager.Controllers;
 //
 //         if (comment is null)
 //         {
-//             return NotFound();
+//             return ();
 //         }
 //
 //         var commentDetailsDto = mapper.Map<CommentDetailsDto>(comment);

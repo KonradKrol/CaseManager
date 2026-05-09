@@ -13,10 +13,8 @@ public class GlobalExceptionHandler(
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception,
         CancellationToken cancellationToken)
     {
-        var correlationId = httpContext.Request.Headers["X-Correlation-Id"];
         logger.LogError(exception,
-            $"Unhandled exception for {httpContext.Request.Path} (ID: {correlationId
-            })");
+            $"Unhandled exception for {httpContext.Request.Path})");
 
         var problemDetails = exception switch
         {

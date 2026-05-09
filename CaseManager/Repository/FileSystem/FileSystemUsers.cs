@@ -10,14 +10,17 @@ public class FileSystemUsers : IUserRepository
 {
     private readonly string _filePath;
 
+    private readonly ILogger<FileSystemUsers> _logger;
+
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         WriteIndented = true
     };
 
-    public FileSystemUsers(IOptions<StorageOptions> options)
+    public FileSystemUsers(IOptions<StorageOptions> options, ILogger<FileSystemUsers> logger)
     {
         _filePath = options.Value.UsersFilePath;
+        _logger = logger;
 
         if (!File.Exists(_filePath))
         {
@@ -30,8 +33,11 @@ public class FileSystemUsers : IUserRepository
         await using var stream = File.OpenRead(_filePath);
         try
         {
-            return await JsonSerializer.DeserializeAsync<List<UserRecord>>(stream)
+            var records = await JsonSerializer.DeserializeAsync<List<UserRecord>>(stream)
                    ?? [];
+
+            _logger.LogDebug("Read {RecordsCount} records from file {FilePath}", records.Count, _filePath);
+            return records;
         }
         catch (JsonException e)
         {
@@ -43,6 +49,7 @@ public class FileSystemUsers : IUserRepository
     {
         await using var stream = File.Create(_filePath);
         await JsonSerializer.SerializeAsync(stream, records);
+        _logger.LogDebug("Written {RecordsCount} records to the file: {FilePath}", records.Count, _filePath);
     }
 
     public async Task<IEnumerable<User>> GetAllUsersAsync()

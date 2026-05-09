@@ -1,23 +1,26 @@
 namespace CaseManager.Middleware;
 
-public class CorrelationIdMiddleware(RequestDelegate next)
+public class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationIdMiddleware> logger)
 {
     private const string CorrelationIdHeader = "X-Correlation-Id";
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // TraceIdentifier is like Guid.NewGuid for us
-        var correlationId = context.Request.Headers[CorrelationIdHeader].FirstOrDefault() ?? context.TraceIdentifier;
-        context.TraceIdentifier = correlationId;
+        // TraceIdentifier is internal ASP.NET Core request ID.
 
-        context.Request.Headers[CorrelationIdHeader] = correlationId;
-        context.Response.Headers[CorrelationIdHeader] = correlationId;
+        var traceIdentifier = context.TraceIdentifier;
+        var correlationIdFromHeader = context.Request.Headers[CorrelationIdHeader].FirstOrDefault();
         
-        context.Response.OnStarting(() =>
+        if (!Guid.TryParse(correlationIdFromHeader, out var parsed))
         {
-            context.Response.Headers[CorrelationIdHeader] = context.TraceIdentifier;
-            return Task.CompletedTask;
-        });
+            parsed = Guid.NewGuid();
+        }
+
+        var correlationId = parsed.ToString();
+        
+        logger.LogDebug("Generated correlationId {CorrelationId} for a request with traceIdentifier {TraceIdentifier}", correlationId, traceIdentifier);
+        
+        context.Response.Headers[CorrelationIdHeader] = correlationId;
 
         await next(context);
     }

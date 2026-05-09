@@ -3,7 +3,7 @@ namespace CaseManager.Auth.RefreshTokens;
 public interface IRefreshTokens
 {
     Task AddAsync(RefreshToken token);
-    Task<bool> DeleteAsync(string token);
+    Task<bool> DeleteAsync(string tokenHash);
     Task<RefreshToken?> GetTokenAsync(string rawToken);
     Task<IEnumerable<RefreshToken>> GetUserTokensAsync(Guid userId);
     Task<RefreshToken?> GetLatestUserTokenAsync(Guid userId);
